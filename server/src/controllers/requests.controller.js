@@ -1,0 +1,120 @@
+const db = require('../config/db');
+
+exports.list = async (req, res, next) => {
+  try {
+    const { status, project_id } = req.query;
+    let where = [], params = [];
+
+    if (req.user.role === 'requester') {
+      params.push(req.user.id); where.push(`r.requester_id = $${params.length}`);
+    } else if (req.user.role === 'storekeeper') {
+      const sk = await db.query('SELECT project_id FROM project_storekeepers WHERE user_id = $1', [req.user.id]);
+      const ids = sk.rows.map(x => x.project_id);
+      if (!ids.length) return res.json([]);
+      params.push(ids); where.push(`r.project_id = ANY($${params.length})`);
+    } else if (req.user.role === 'coordinator') {
+      where.push(`r.status IN ('escalated')`);
+    }
+
+    if (status) { params.push(status); where.push(`r.status = $${params.length}`); }
+    if (project_id) { params.push(project_id); where.push(`r.project_id = $${params.length}`); }
+
+    const whereClause = where.length ? 'WHERE ' + where.join(' AND ') : '';
+    const { rows } = await db.query(
+      `SELECT r.*, p.name as project_name,
+              u.name as requester_name, u.position as requester_position,
+              (SELECT COUNT(*) FROM request_items ri WHERE ri.request_id = r.id) as item_count
+       FROM material_requests r
+       JOIN projects p ON p.id = r.project_id
+       JOIN users u ON u.id = r.requester_id
+       ${whereClause} ORDER BY r.created_at DESC`,
+      params
+    );
+    res.json(rows);
+  } catch (err) { next(err); }
+};
+
+exports.create = async (req, res, next) => {
+  const client = await db.connect();
+  try {
+    const { project_id, items, notes } = req.body;
+    if (!project_id || !items?.length) return res.status(400).json({ error: 'project_id and items required' });
+
+    await client.query('BEGIN');
+    const req_res = await client.query(
+      `INSERT INTO material_requests (project_id, requester_id, notes) VALUES ($1,$2,$3) RETURNING *`,
+      [project_id, req.user.id, notes || null]
+    );
+    const request = req_res.rows[0];
+
+    for (const item of items) {
+      await client.query(
+        `INSERT INTO request_items (request_id, stock_item_id, item_number, description_1, description_2, uom, quantity_requested)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+        [request.id, item.stock_item_id || null, item.item_number || null, item.description_1, item.description_2 || null, item.uom, item.quantity_requested]
+      );
+    }
+    await client.query('COMMIT');
+    res.status(201).json(request);
+  } catch (err) { await client.query('ROLLBACK'); next(err); }
+  finally { client.release(); }
+};
+
+exports.get = async (req, res, next) => {
+  try {
+    const { rows } = await db.query(
+      `SELECT r.*, p.name as project_name, u.name as requester_name, u.position as requester_position
+       FROM material_requests r
+       JOIN projects p ON p.id = r.project_id
+       JOIN users u ON u.id = r.requester_id
+       WHERE r.id = $1`, [req.params.id]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'Request not found' });
+    const items = await db.query('SELECT * FROM request_items WHERE request_id = $1', [req.params.id]);
+    res.json({ ...rows[0], items: items.rows });
+  } catch (err) { next(err); }
+};
+
+exports.reject = async (req, res, next) => {
+  try {
+    const { rejection_reason } = req.body;
+    const { rows } = await db.query(
+      `UPDATE material_requests SET status = 'rejected', rejection_reason = $1, updated_at = NOW()
+       WHERE id = $2 RETURNING *`,
+      [rejection_reason || null, req.params.id]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'Request not found' });
+    res.json(rows[0]);
+  } catch (err) { next(err); }
+};
+
+exports.escalate = async (req, res, next) => {
+  try {
+    const { notes } = req.body;
+    const { rows: rrows } = await db.query(
+      `UPDATE material_requests SET status = 'escalated', updated_at = NOW() WHERE id = $1 AND requester_id = $2 RETURNING *`,
+      [req.params.id, req.user.id]
+    );
+    if (!rrows[0]) return res.status(404).json({ error: 'Request not found' });
+
+    const coord = await db.query(`SELECT id FROM users WHERE role = 'coordinator' AND is_active = true LIMIT 1`);
+    await db.query(
+      `INSERT INTO escalations (request_id, requester_id, coordinator_id, notes)
+       VALUES ($1,$2,$3,$4)`,
+      [req.params.id, req.user.id, coord.rows[0]?.id || null, notes || null]
+    );
+    res.json(rrows[0]);
+  } catch (err) { next(err); }
+};
+
+exports.resolveEscalation = async (req, res, next) => {
+  try {
+    const { resolution } = req.body;
+    await db.query(
+      `UPDATE escalations SET status = 'resolved', resolution = $1, resolved_at = NOW()
+       WHERE request_id = $2`,
+      [resolution || null, req.params.id]
+    );
+    res.json({ message: 'Escalation resolved' });
+  } catch (err) { next(err); }
+};
