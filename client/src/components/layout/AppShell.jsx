@@ -7,12 +7,15 @@ const navByRole = {
     { path: '/admin', label: '🏠 Dashboard' },
     { path: '/admin/users', label: '👥 Users' },
     { path: '/admin/projects', label: '🏗️ Projects' },
+    { path: '/admin/stock-adjustment', label: '📦 Stock Adjustment' },
+    { path: '/admin/audit-log', label: '📋 Audit Log' },
     { path: '/admin/settings', label: '⚙️ Settings' },
   ],
   requester: [
     { path: '/requester', label: '🏠 Dashboard' },
     { path: '/requester/submit', label: '📝 New Request' },
     { path: '/requester/requests', label: '📋 My Requests' },
+    { path: '/requester/stock', label: '🔍 Browse Stock' },
   ],
   coordinator: [
     { path: '/coordinator', label: '🏠 Dashboard' },
@@ -21,6 +24,7 @@ const navByRole = {
   storekeeper: [
     { path: '/storekeeper', label: '🏠 Dashboard' },
     { path: '/storekeeper/incoming', label: '📥 Incoming Requests' },
+    { path: '/storekeeper/delivery-notes', label: '📋 Delivery Notes' },
     { path: '/storekeeper/returns', label: '📤 Returns' },
     { path: '/storekeeper/stock', label: '🔍 Stock Search' },
   ],
@@ -30,6 +34,7 @@ const navByRole = {
     { path: '/superuser/upload', label: '📂 Upload Packing List' },
     { path: '/superuser/reports', label: '📊 Reports' },
     { path: '/superuser/daily-log', label: '📅 Daily Log' },
+    { path: '/superuser/audit-log', label: '📋 Audit Log' },
   ],
 };
 
@@ -42,6 +47,11 @@ export default function AppShell({ children }) {
 
   const handleLogout = () => { logout(); navigate('/login'); };
 
+  const isActive = (path) => {
+    if (path === `/${user?.role}`) return location.pathname === path;
+    return location.pathname.startsWith(path);
+  };
+
   const NavLinks = () => (
     <>
       {nav.map(item => (
@@ -50,7 +60,7 @@ export default function AppShell({ children }) {
           to={item.path}
           onClick={() => setMobileOpen(false)}
           className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors
-            ${location.pathname === item.path
+            ${isActive(item.path)
               ? 'bg-blue-600 text-white'
               : 'text-gray-700 hover:bg-gray-100'}`}
         >
@@ -63,36 +73,60 @@ export default function AppShell({ children }) {
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col lg:flex-row">
       {/* Sidebar — desktop */}
-      <aside className="hidden lg:flex flex-col w-64 bg-white border-r border-gray-200 min-h-screen">
+      <aside className="hidden lg:flex flex-col w-64 bg-white border-r border-gray-200 min-h-screen shrink-0">
         <div className="p-5 border-b">
           <h1 className="font-bold text-blue-700 text-sm leading-tight">Site Inventory<br/>Management System</h1>
         </div>
-        <nav className="flex-1 p-3 space-y-1"><NavLinks /></nav>
+        <nav className="flex-1 p-3 space-y-1 overflow-y-auto"><NavLinks /></nav>
         <div className="p-4 border-t">
-          <p className="text-xs text-gray-500 mb-1">{user?.name}</p>
+          <p className="text-xs font-medium text-gray-700 truncate">{user?.name}</p>
           <p className="text-xs text-gray-400 capitalize mb-3">{user?.role}</p>
-          <button onClick={handleLogout} className="w-full text-xs text-red-500 hover:text-red-700 text-left">Sign out</button>
+          <button onClick={handleLogout} className="w-full text-xs text-red-500 hover:text-red-700 text-left py-1">
+            Sign out →
+          </button>
         </div>
       </aside>
 
       {/* Top bar — mobile */}
-      <div className="lg:hidden flex items-center justify-between bg-white border-b px-4 py-3">
+      <div className="lg:hidden sticky top-0 z-30 flex items-center justify-between bg-white border-b px-4 py-3 shadow-sm">
         <h1 className="font-bold text-blue-700 text-sm">SIMS</h1>
-        <button onClick={() => setMobileOpen(!mobileOpen)} className="text-gray-600 text-xl">☰</button>
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-gray-500 capitalize hidden sm:block">{user?.role}</span>
+          <button
+            onClick={() => setMobileOpen(!mobileOpen)}
+            className="text-gray-600 text-xl p-1 rounded-lg hover:bg-gray-100 active:bg-gray-200 transition-colors"
+            aria-label="Open menu"
+          >
+            {mobileOpen ? '✕' : '☰'}
+          </button>
+        </div>
       </div>
 
       {/* Mobile drawer */}
       {mobileOpen && (
-        <div className="lg:hidden fixed inset-0 z-40 bg-black/30" onClick={() => setMobileOpen(false)}>
-          <div className="absolute left-0 top-0 bottom-0 w-64 bg-white p-4 space-y-1" onClick={e => e.stopPropagation()}>
-            <NavLinks />
-            <button onClick={handleLogout} className="w-full text-left text-sm text-red-500 px-4 py-2 mt-4">Sign out</button>
+        <div className="lg:hidden fixed inset-0 z-40 bg-black/40" onClick={() => setMobileOpen(false)}>
+          <div
+            className="absolute left-0 top-0 bottom-0 w-72 bg-white flex flex-col shadow-xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="p-5 border-b bg-blue-700">
+              <h1 className="font-bold text-white text-sm">Site Inventory System</h1>
+              <p className="text-blue-200 text-xs mt-1 capitalize">{user?.name} · {user?.role}</p>
+            </div>
+            <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
+              <NavLinks />
+            </nav>
+            <div className="p-4 border-t">
+              <button onClick={handleLogout} className="w-full text-sm text-red-500 hover:text-red-700 text-left py-2 px-4 rounded-lg hover:bg-red-50">
+                Sign out
+              </button>
+            </div>
           </div>
         </div>
       )}
 
       {/* Main content */}
-      <main className="flex-1 p-4 lg:p-8 overflow-auto">{children}</main>
+      <main className="flex-1 p-4 sm:p-6 lg:p-8 overflow-auto min-w-0">{children}</main>
     </div>
   );
 }

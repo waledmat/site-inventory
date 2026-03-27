@@ -1,0 +1,1 @@
+ALTER TABLE issue_items ADD COLUMN IF NOT EXISTS batch_number VARCHAR(100);

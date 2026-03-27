@@ -24,6 +24,7 @@ app.use('/api/stock', require('./routes/stock.routes'));
 app.use('/api/upload', require('./routes/upload.routes'));
 app.use('/api/reports', require('./routes/reports.routes'));
 app.use('/api/settings', require('./routes/settings.routes'));
+app.use('/api/audit', require('./routes/audit.routes'));
 
 app.use(require('./middleware/errorHandler'));
 

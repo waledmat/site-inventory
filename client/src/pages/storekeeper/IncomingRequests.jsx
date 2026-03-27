@@ -61,17 +61,31 @@ export default function IncomingRequests() {
               <thead className="bg-gray-50"><tr>
                 <th className="px-3 py-2 text-left">Description</th>
                 <th className="px-3 py-2 text-left">Item No.</th>
-                <th className="px-3 py-2 text-left">Qty</th>
+                <th className="px-3 py-2 text-center">Requested</th>
+                <th className="px-3 py-2 text-center">On Hand</th>
                 <th className="px-3 py-2 text-left">UOM</th>
               </tr></thead>
-              <tbody>{detail.items?.map((item, i) => (
-                <tr key={i} className="border-t">
-                  <td className="px-3 py-2">{item.description_1}</td>
-                  <td className="px-3 py-2">{item.item_number || '—'}</td>
-                  <td className="px-3 py-2">{item.quantity_requested}</td>
-                  <td className="px-3 py-2">{item.uom}</td>
-                </tr>
-              ))}</tbody>
+              <tbody>{detail.items?.map((item, i) => {
+                const onHand = parseFloat(item.qty_on_hand ?? 0);
+                const requested = parseFloat(item.quantity_requested);
+                const sufficient = onHand >= requested;
+                return (
+                  <tr key={i} className={`border-t ${!sufficient ? 'bg-red-50' : ''}`}>
+                    <td className="px-3 py-2">{item.description_1}</td>
+                    <td className="px-3 py-2 text-xs text-gray-500">{item.item_number || '—'}</td>
+                    <td className="px-3 py-2 text-center font-semibold">{requested}</td>
+                    <td className="px-3 py-2 text-center">
+                      <span className={`font-bold ${sufficient ? 'text-green-600' : 'text-red-600'}`}>
+                        {onHand}
+                      </span>
+                      {!sufficient && (
+                        <span className="ml-1 text-xs text-red-500">⚠ Low</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-xs text-gray-500">{item.uom}</td>
+                  </tr>
+                );
+              })}</tbody>
             </table>
 
             {showReject ? (

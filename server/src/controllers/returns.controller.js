@@ -1,4 +1,5 @@
 const db = require('../config/db');
+const { logAudit, logStockTransaction } = require('../utils/audit');
 
 exports.pending = async (req, res, next) => {
   try {
@@ -6,7 +7,6 @@ exports.pending = async (req, res, next) => {
     let where = [`ii.quantity_issued > COALESCE((SELECT SUM(r.quantity_returned) FROM material_returns r WHERE r.issue_item_id = ii.id AND r.condition != 'lost'), 0)`];
     const params = [];
 
-    // Storekeeper: scoped to their projects but can see all storekeepers
     if (req.user.role === 'storekeeper') {
       const sk = await db.query('SELECT project_id FROM project_storekeepers WHERE user_id = $1', [req.user.id]);
       const ids = sk.rows.map(x => x.project_id);
@@ -71,13 +71,13 @@ exports.create = async (req, res, next) => {
 
     // Validate balance
     const { rows: itemRows } = await client.query(
-      `SELECT ii.quantity_issued, ii.stock_item_id, i.project_id,
+      `SELECT ii.quantity_issued, ii.stock_item_id, i.project_id, i.delivery_note_id,
               COALESCE((SELECT SUM(r.quantity_returned) FROM material_returns r WHERE r.issue_item_id = $1 AND r.condition != 'lost'), 0) as already_returned
        FROM issue_items ii JOIN material_issues i ON i.id = ii.issue_id WHERE ii.id = $1`,
       [issue_item_id]
     );
     if (!itemRows[0]) return res.status(404).json({ error: 'Issue item not found' });
-    const { quantity_issued, already_returned, stock_item_id, project_id } = itemRows[0];
+    const { quantity_issued, already_returned, stock_item_id, project_id, delivery_note_id } = itemRows[0];
     if (parseFloat(already_returned) + parseFloat(quantity_returned) > parseFloat(quantity_issued)) {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'Return quantity exceeds issued quantity' });
@@ -89,18 +89,24 @@ exports.create = async (req, res, next) => {
       [issue_item_id, project_id, req.user.id, quantity_returned, condition, notes || null]
     );
 
-    // Update stock
+    // Update stock + log transaction
     if (stock_item_id && condition !== 'lost') {
       await client.query(
         `UPDATE stock_items SET qty_returned = qty_returned + $1, qty_pending_return = qty_pending_return - $1, qty_on_hand = qty_on_hand + $1, updated_at = NOW() WHERE id = $2`,
         [quantity_returned, stock_item_id]
       );
+      await logStockTransaction(client, stock_item_id, 'return', parseFloat(quantity_returned), delivery_note_id, 'return', req.user.id, `Returned · condition: ${condition}`);
     } else if (stock_item_id && condition === 'lost') {
       await client.query(
         `UPDATE stock_items SET qty_pending_return = qty_pending_return - $1, updated_at = NOW() WHERE id = $2`,
         [quantity_returned, stock_item_id]
       );
+      await logStockTransaction(client, stock_item_id, 'return', 0, delivery_note_id, 'return', req.user.id, `Lost · qty: ${quantity_returned}`);
     }
+
+    await logAudit(client, req.user.id, 'RETURN_LOGGED', 'material_return', rows[0].id,
+      null, { issue_item_id, quantity_returned, condition }
+    );
 
     await client.query('COMMIT');
     res.status(201).json(rows[0]);

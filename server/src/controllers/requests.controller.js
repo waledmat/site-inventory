@@ -48,10 +48,29 @@ exports.create = async (req, res, next) => {
     const request = req_res.rows[0];
 
     for (const item of items) {
+      let desc1 = item.description_1 || null;
+      let desc2 = item.description_2 || null;
+      let uom   = item.uom   || null;
+      let itemNo = item.item_number || null;
+
+      // Always pull authoritative values from stock_items when a stock_item_id is provided
+      if (item.stock_item_id) {
+        const { rows: si } = await client.query(
+          'SELECT description_1, description_2, uom, item_number FROM stock_items WHERE id = $1',
+          [item.stock_item_id]
+        );
+        if (si[0]) {
+          desc1  = si[0].description_1;
+          desc2  = si[0].description_2 || null;
+          uom    = si[0].uom;
+          itemNo = si[0].item_number || null;
+        }
+      }
+
       await client.query(
         `INSERT INTO request_items (request_id, stock_item_id, item_number, description_1, description_2, uom, quantity_requested)
          VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-        [request.id, item.stock_item_id || null, item.item_number || null, item.description_1, item.description_2 || null, item.uom, item.quantity_requested]
+        [request.id, item.stock_item_id || null, itemNo, desc1, desc2, uom, item.quantity_requested]
       );
     }
     await client.query('COMMIT');
@@ -70,7 +89,13 @@ exports.get = async (req, res, next) => {
        WHERE r.id = $1`, [req.params.id]
     );
     if (!rows[0]) return res.status(404).json({ error: 'Request not found' });
-    const items = await db.query('SELECT * FROM request_items WHERE request_id = $1', [req.params.id]);
+    const items = await db.query(
+      `SELECT ri.*, s.qty_on_hand
+       FROM request_items ri
+       LEFT JOIN stock_items s ON s.id = ri.stock_item_id
+       WHERE ri.request_id = $1`,
+      [req.params.id]
+    );
     res.json({ ...rows[0], items: items.rows });
   } catch (err) { next(err); }
 };
@@ -92,10 +117,11 @@ exports.escalate = async (req, res, next) => {
   try {
     const { notes } = req.body;
     const { rows: rrows } = await db.query(
-      `UPDATE material_requests SET status = 'escalated', updated_at = NOW() WHERE id = $1 AND requester_id = $2 RETURNING *`,
+      `UPDATE material_requests SET status = 'escalated', updated_at = NOW()
+       WHERE id = $1 AND requester_id = $2 AND status = 'pending' RETURNING *`,
       [req.params.id, req.user.id]
     );
-    if (!rrows[0]) return res.status(404).json({ error: 'Request not found' });
+    if (!rrows[0]) return res.status(404).json({ error: 'Request not found or cannot be escalated' });
 
     const coord = await db.query(`SELECT id FROM users WHERE role = 'coordinator' AND is_active = true LIMIT 1`);
     await db.query(
@@ -114,6 +140,10 @@ exports.resolveEscalation = async (req, res, next) => {
       `UPDATE escalations SET status = 'resolved', resolution = $1, resolved_at = NOW()
        WHERE request_id = $2`,
       [resolution || null, req.params.id]
+    );
+    await db.query(
+      `UPDATE material_requests SET status = 'pending', updated_at = NOW() WHERE id = $1`,
+      [req.params.id]
     );
     res.json({ message: 'Escalation resolved' });
   } catch (err) { next(err); }
