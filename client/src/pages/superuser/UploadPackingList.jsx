@@ -2,6 +2,15 @@ import { useEffect, useState, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
 import api from '../../utils/axiosInstance';
 
+const downloadTemplate = () => {
+  const token = localStorage.getItem('token');
+  const base = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
+  const a = document.createElement('a');
+  a.href = `${base}/upload/packing-list/template?token=${token}`;
+  a.download = 'packing-list-template.xlsx';
+  a.click();
+};
+
 export default function UploadPackingList() {
   const [projects, setProjects] = useState([]);
   const [selectedProject, setSelectedProject] = useState('');
@@ -42,7 +51,13 @@ export default function UploadPackingList() {
 
   return (
     <div className="max-w-4xl">
-      <h2 className="text-2xl font-bold text-gray-800 mb-6">Upload Packing List</h2>
+      <div className="flex items-center justify-between mb-6">
+        <h2 className="text-2xl font-bold text-gray-800">Upload Packing List</h2>
+        <button onClick={downloadTemplate}
+          className="flex items-center gap-2 border border-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm hover:bg-gray-50">
+          📥 Download Template
+        </button>
+      </div>
 
       <div className="bg-white rounded-xl border p-6 space-y-4">
         <div>

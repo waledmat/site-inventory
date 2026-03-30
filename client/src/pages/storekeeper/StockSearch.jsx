@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import api from '../../utils/axiosInstance';
 
 export default function StockSearch() {
@@ -10,12 +10,20 @@ export default function StockSearch() {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
+  const [lowStockOnly, setLowStockOnly] = useState(false);
+  const didMount = useRef(false);
   const PAGE_SIZE = 50;
 
   useEffect(() => {
     api.get('/projects').then(r => setProjects(r.data)).catch(() => {});
     search();
   }, []);
+
+  // Auto-search when category or project dropdown changes
+  useEffect(() => {
+    if (!didMount.current) { didMount.current = true; return; }
+    search(1);
+  }, [category, projectId]);
 
   const search = async (p = 1) => {
     setLoading(true);
@@ -34,6 +42,8 @@ export default function StockSearch() {
   };
 
   const catLabel = { CH: 'Chargeable', DC: 'Consumable', SPARE: 'Spare Parts' };
+  const displayed = lowStockOnly ? results.filter(r => r.is_low_stock) : results;
+  const lowStockCount = results.filter(r => r.is_low_stock).length;
 
   return (
     <div>
@@ -60,13 +70,25 @@ export default function StockSearch() {
             {loading ? 'Searching…' : '🔍 Search'}
           </button>
         </div>
+        {lowStockCount > 0 && (
+          <div className="mt-3">
+            <label className="flex items-center gap-2 text-sm cursor-pointer select-none w-fit">
+              <input type="checkbox" checked={lowStockOnly} onChange={e => setLowStockOnly(e.target.checked)}
+                className="rounded" />
+              <span className="text-red-600 font-medium">⚠ Show low stock only ({lowStockCount})</span>
+            </label>
+          </div>
+        )}
       </div>
 
       {total > 0 && (
-        <p className="text-xs text-gray-500 mb-2">{total} item{total !== 1 ? 's' : ''} found</p>
+        <p className="text-xs text-gray-500 mb-2">
+          {total} item{total !== 1 ? 's' : ''} found
+          {lowStockOnly && ` · showing ${displayed.length} low-stock`}
+        </p>
       )}
 
-      {results.length > 0 && (
+      {displayed.length > 0 && (
         <div className="overflow-x-auto rounded-xl border">
           <table className="min-w-full text-sm">
             <thead className="bg-gray-50 text-xs text-gray-600 uppercase">
@@ -77,11 +99,16 @@ export default function StockSearch() {
               </tr>
             </thead>
             <tbody className="divide-y">
-              {results.map(item => (
+              {displayed.map(item => (
                 <tr key={item.id} className={`hover:bg-gray-50 ${item.qty_on_hand <= 0 ? 'bg-yellow-50' : ''}`}>
                   <td className="px-4 py-3 font-mono text-xs">{item.item_number || '—'}</td>
                   <td className="px-4 py-3">
-                    <div className="font-medium">{item.description_1}</div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-medium">{item.description_1}</span>
+                      {item.is_low_stock && (
+                        <span className="text-xs bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full whitespace-nowrap">⚠ Low Stock</span>
+                      )}
+                    </div>
                     {item.description_2 && <div className="text-xs text-gray-400">{item.description_2}</div>}
                   </td>
                   <td className="px-4 py-3">
@@ -103,7 +130,7 @@ export default function StockSearch() {
           </table>
         </div>
       )}
-      {results.length === 0 && !loading && (
+      {displayed.length === 0 && !loading && (
         <div className="text-center py-8 text-gray-400">No items found</div>
       )}
       {loading && results.length === 0 && (

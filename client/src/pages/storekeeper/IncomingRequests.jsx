@@ -7,13 +7,27 @@ import Modal from '../../components/common/Modal';
 
 export default function IncomingRequests() {
   const [requests, setRequests] = useState([]);
+  const [projects, setProjects] = useState([]);
+  const [filterProject, setFilterProject] = useState('');
+  const [filterName, setFilterName] = useState('');
   const [detail, setDetail] = useState(null);
   const [rejectReason, setRejectReason] = useState('');
   const [showReject, setShowReject] = useState(false);
   const navigate = useNavigate();
 
-  const load = () => api.get('/requests?status=pending').then(r => setRequests(r.data)).catch(() => {});
+  useEffect(() => { api.get('/projects').then(r => setProjects(r.data)).catch(() => {}); }, []);
+
+  const load = (projectId = '') => {
+    const params = new URLSearchParams({ status: 'pending' });
+    if (projectId) params.append('project_id', projectId);
+    api.get(`/requests?${params}`).then(r => setRequests(r.data)).catch(() => {});
+  };
   useEffect(() => { load(); }, []);
+
+  const handleProjectChange = e => {
+    setFilterProject(e.target.value);
+    load(e.target.value);
+  };
 
   const openDetail = async id => {
     const { data } = await api.get(`/requests/${id}`);
@@ -22,12 +36,14 @@ export default function IncomingRequests() {
 
   const reject = async () => {
     await api.put(`/requests/${detail.id}/reject`, { rejection_reason: rejectReason });
-    setDetail(null); load();
+    setDetail(null); load(filterProject);
   };
 
-  const goIssue = () => {
-    navigate(`/storekeeper/issue/${detail.id}`);
-  };
+  const goIssue = () => { navigate(`/storekeeper/issue/${detail.id}`); };
+
+  const displayed = filterName
+    ? requests.filter(r => r.requester_name?.toLowerCase().includes(filterName.toLowerCase()))
+    : requests;
 
   const cols = [
     { key: 'created_at', header: 'Date', render: v => v?.slice(0,10) },
@@ -42,9 +58,27 @@ export default function IncomingRequests() {
   return (
     <div>
       <h2 className="text-2xl font-bold text-gray-800 mb-6">Incoming Requests</h2>
-      {requests.length === 0
+
+      <div className="bg-white rounded-xl border p-4 mb-5 flex flex-wrap gap-3">
+        <input value={filterName} onChange={e => setFilterName(e.target.value)}
+          placeholder="Search by requester name…"
+          className="flex-1 min-w-40 border rounded-lg px-3 py-2 text-sm" />
+        <select value={filterProject} onChange={handleProjectChange}
+          className="border rounded-lg px-3 py-2 text-sm">
+          <option value="">All Projects</option>
+          {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+        </select>
+        {(filterName || filterProject) && (
+          <button onClick={() => { setFilterName(''); setFilterProject(''); load(''); }}
+            className="text-sm text-gray-500 hover:text-gray-800 px-3 py-2 border rounded-lg">
+            ✕ Clear
+          </button>
+        )}
+      </div>
+
+      {displayed.length === 0
         ? <div className="bg-white rounded-xl border p-8 text-center text-gray-400">No pending requests</div>
-        : <Table columns={cols} data={requests} />
+        : <Table columns={cols} data={displayed} />
       }
 
       <Modal isOpen={!!detail} onClose={() => setDetail(null)} title="Review Request" wide>
@@ -75,12 +109,8 @@ export default function IncomingRequests() {
                     <td className="px-3 py-2 text-xs text-gray-500">{item.item_number || '—'}</td>
                     <td className="px-3 py-2 text-center font-semibold">{requested}</td>
                     <td className="px-3 py-2 text-center">
-                      <span className={`font-bold ${sufficient ? 'text-green-600' : 'text-red-600'}`}>
-                        {onHand}
-                      </span>
-                      {!sufficient && (
-                        <span className="ml-1 text-xs text-red-500">⚠ Low</span>
-                      )}
+                      <span className={`font-bold ${sufficient ? 'text-green-600' : 'text-red-600'}`}>{onHand}</span>
+                      {!sufficient && <span className="ml-1 text-xs text-red-500">⚠ Low</span>}
                     </td>
                     <td className="px-3 py-2 text-xs text-gray-500">{item.uom}</td>
                   </tr>

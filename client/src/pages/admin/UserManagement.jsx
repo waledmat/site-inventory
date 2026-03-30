@@ -9,11 +9,13 @@ const emptyForm = { name: '', employee_id: '', role: 'requester', position: '', 
 
 export default function UserManagement() {
   const [users, setUsers] = useState([]);
+  const [filterText, setFilterText] = useState('');
+  const [filterRole, setFilterRole] = useState('');
   const [modal, setModal] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [editing, setEditing] = useState(null);
   const [error, setError] = useState('');
-  const [resetTarget, setResetTarget] = useState(null); // { id, name }
+  const [resetTarget, setResetTarget] = useState(null);
   const [newPassword, setNewPassword] = useState('');
   const [resetError, setResetError] = useState('');
   const [resetDone, setResetDone] = useState(false);
@@ -33,13 +35,8 @@ export default function UserManagement() {
     } catch (err) { setError(err.response?.data?.error || 'Error saving user'); }
   };
 
-  const authorize = async id => {
-    await api.post(`/users/${id}/authorize`); load();
-  };
-
-  const toggleActive = async u => {
-    await api.put(`/users/${u.id}`, { is_active: !u.is_active }); load();
-  };
+  const authorize = async id => { await api.post(`/users/${id}/authorize`); load(); };
+  const toggleActive = async u => { await api.put(`/users/${u.id}`, { is_active: !u.is_active }); load(); };
 
   const openReset = u => { setResetTarget(u); setNewPassword(''); setResetError(''); setResetDone(false); };
   const closeReset = () => setResetTarget(null);
@@ -51,6 +48,16 @@ export default function UserManagement() {
       setResetDone(true);
     } catch (err) { setResetError(err.response?.data?.error || 'Error resetting password'); }
   };
+
+  // Client-side filter
+  const displayed = users.filter(u => {
+    const matchText = !filterText ||
+      u.name?.toLowerCase().includes(filterText.toLowerCase()) ||
+      u.employee_id?.toLowerCase().includes(filterText.toLowerCase()) ||
+      u.position?.toLowerCase().includes(filterText.toLowerCase());
+    const matchRole = !filterRole || u.role === filterRole;
+    return matchText && matchRole;
+  });
 
   const cols = [
     { key: 'employee_id', header: 'Employee ID' },
@@ -81,7 +88,30 @@ export default function UserManagement() {
         <h2 className="text-2xl font-bold text-gray-800">User Management</h2>
         <button onClick={openCreate} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700">+ Add User</button>
       </div>
-      <Table columns={cols} data={users} />
+
+      <div className="bg-white rounded-xl border p-4 mb-5 flex flex-wrap gap-3">
+        <input value={filterText} onChange={e => setFilterText(e.target.value)}
+          placeholder="Search by name, employee ID, or position…"
+          className="flex-1 min-w-48 border rounded-lg px-3 py-2 text-sm" />
+        <select value={filterRole} onChange={e => setFilterRole(e.target.value)}
+          className="border rounded-lg px-3 py-2 text-sm">
+          <option value="">All Roles</option>
+          {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+        </select>
+        {(filterText || filterRole) && (
+          <button onClick={() => { setFilterText(''); setFilterRole(''); }}
+            className="text-sm text-gray-500 hover:text-gray-800 px-3 py-2 border rounded-lg">
+            ✕ Clear
+          </button>
+        )}
+      </div>
+
+      {filterText || filterRole
+        ? <p className="text-xs text-gray-500 mb-2">{displayed.length} of {users.length} users</p>
+        : null
+      }
+
+      <Table columns={cols} data={displayed} />
 
       <Modal isOpen={!!resetTarget} onClose={closeReset} title={`Reset Password — ${resetTarget?.name}`}>
         {resetDone ? (
