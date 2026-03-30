@@ -55,7 +55,7 @@ export default function StockSearch() {
             <option value="">All Projects</option>
             {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
-          <button onClick={search} disabled={loading}
+          <button onClick={() => search()} disabled={loading}
             className="bg-blue-600 text-white px-5 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
             {loading ? 'Searching…' : '🔍 Search'}
           </button>
