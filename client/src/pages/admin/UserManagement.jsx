@@ -4,7 +4,7 @@ import Table from '../../components/common/Table';
 import Badge from '../../components/common/Badge';
 import Modal from '../../components/common/Modal';
 
-const ROLES = ['admin', 'storekeeper', 'requester', 'superuser', 'coordinator'];
+const ROLES = ['admin', 'storekeeper', 'requester', 'superuser', 'coordinator', 'warehouse_manager', 'receiver', 'picker'];
 const emptyForm = { name: '', employee_id: '', role: 'requester', position: '', password: '' };
 
 export default function UserManagement() {

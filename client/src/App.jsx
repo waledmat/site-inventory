@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { ToastProvider } from './context/ToastContext';
 import ProtectedRoute from './components/common/ProtectedRoute';
 import AppShell from './components/layout/AppShell';
 
@@ -31,6 +32,22 @@ import PendingReturns from './pages/storekeeper/PendingReturns';
 import StockSearch from './pages/storekeeper/StockSearch';
 import DeliveryNotes from './pages/storekeeper/DeliveryNotes';
 
+// Warehouse Manager
+import WMDashboard from './pages/warehouse_manager/WMDashboard';
+import SupplierManagement from './pages/warehouse_manager/SupplierManagement';
+import ItemMaster from './pages/warehouse_manager/ItemMaster';
+import LocationManagement from './pages/warehouse_manager/LocationManagement';
+import PurchaseOrders from './pages/warehouse_manager/PurchaseOrders';
+import ReceiveGRN from './pages/warehouse_manager/ReceiveGRN';
+import PutawayTasks from './pages/warehouse_manager/PutawayTasks';
+import WarehouseInventory from './pages/warehouse_manager/WarehouseInventory';
+import DispatchOrders from './pages/warehouse_manager/DispatchOrders';
+import CycleCounting from './pages/warehouse_manager/CycleCounting';
+import WMReports from './pages/warehouse_manager/WMReports';
+
+// Module selector
+import ModuleSelector from './pages/ModuleSelector';
+
 // Super User
 import SuperUserDashboard from './pages/superuser/SuperUserDashboard';
 import UploadPackingList from './pages/superuser/UploadPackingList';
@@ -41,8 +58,8 @@ import SuperuserProjects from './pages/admin/ProjectManagement';
 function RoleRedirect() {
   const { user } = useAuth();
   if (!user) return <Navigate to="/login" replace />;
-  const map = { admin: '/admin', requester: '/requester', storekeeper: '/storekeeper', superuser: '/superuser', coordinator: '/coordinator' };
-  return <Navigate to={map[user.role] || '/login'} replace />;
+  // All roles go to module selector first
+  return <Navigate to="/modules" replace />;
 }
 
 function Shell({ children }) {
@@ -52,10 +69,12 @@ function Shell({ children }) {
 export default function App() {
   return (
     <AuthProvider>
+      <ToastProvider>
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/" element={<ProtectedRoute><RoleRedirect /></ProtectedRoute>} />
+          <Route path="/modules" element={<ProtectedRoute><ModuleSelector /></ProtectedRoute>} />
 
           {/* Admin */}
           <Route path="/admin" element={<ProtectedRoute roles={['admin']}><Shell><AdminDashboard /></Shell></ProtectedRoute>} />
@@ -91,9 +110,23 @@ export default function App() {
           <Route path="/superuser/daily-log" element={<ProtectedRoute roles={['superuser']}><Shell><DailyReportLog /></Shell></ProtectedRoute>} />
           <Route path="/superuser/audit-log" element={<ProtectedRoute roles={['superuser']}><Shell><AuditLog /></Shell></ProtectedRoute>} />
 
+          {/* Warehouse Manager */}
+          <Route path="/wm" element={<ProtectedRoute roles={['warehouse_manager', 'receiver', 'picker']}><Shell><WMDashboard /></Shell></ProtectedRoute>} />
+          <Route path="/wm/suppliers" element={<ProtectedRoute roles={['warehouse_manager']}><Shell><SupplierManagement /></Shell></ProtectedRoute>} />
+          <Route path="/wm/items" element={<ProtectedRoute roles={['warehouse_manager', 'receiver', 'picker']}><Shell><ItemMaster /></Shell></ProtectedRoute>} />
+          <Route path="/wm/locations" element={<ProtectedRoute roles={['warehouse_manager', 'receiver', 'picker']}><Shell><LocationManagement /></Shell></ProtectedRoute>} />
+          <Route path="/wm/po" element={<ProtectedRoute roles={['warehouse_manager']}><Shell><PurchaseOrders /></Shell></ProtectedRoute>} />
+          <Route path="/wm/grn" element={<ProtectedRoute roles={['warehouse_manager', 'receiver']}><Shell><ReceiveGRN /></Shell></ProtectedRoute>} />
+          <Route path="/wm/putaway" element={<ProtectedRoute roles={['warehouse_manager', 'receiver', 'picker']}><Shell><PutawayTasks /></Shell></ProtectedRoute>} />
+          <Route path="/wm/inventory" element={<ProtectedRoute roles={['warehouse_manager', 'receiver', 'picker']}><Shell><WarehouseInventory /></Shell></ProtectedRoute>} />
+          <Route path="/wm/dispatch" element={<ProtectedRoute roles={['warehouse_manager', 'picker']}><Shell><DispatchOrders /></Shell></ProtectedRoute>} />
+          <Route path="/wm/cyclecount" element={<ProtectedRoute roles={['warehouse_manager', 'receiver', 'picker']}><Shell><CycleCounting /></Shell></ProtectedRoute>} />
+          <Route path="/wm/reports" element={<ProtectedRoute roles={['warehouse_manager', 'receiver', 'picker']}><Shell><WMReports /></Shell></ProtectedRoute>} />
+
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </BrowserRouter>
+      </ToastProvider>
     </AuthProvider>
   );
 }

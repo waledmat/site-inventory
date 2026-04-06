@@ -36,6 +36,35 @@ const navByRole = {
     { path: '/superuser/daily-log', label: '📅 Daily Log' },
     { path: '/superuser/audit-log', label: '📋 Audit Log' },
   ],
+  warehouse_manager: [
+    { path: '/wm', label: '🏠 Dashboard' },
+    { path: '/wm/suppliers', label: '🏭 Suppliers' },
+    { path: '/wm/items', label: '📦 Item Master' },
+    { path: '/wm/locations', label: '🗂️ Locations' },
+    { path: '/wm/po', label: '📋 Purchase Orders' },
+    { path: '/wm/grn', label: '📥 Receive (GRN)' },
+    { path: '/wm/putaway', label: '🔀 Putaway Tasks' },
+    { path: '/wm/inventory', label: '📊 Inventory' },
+    { path: '/wm/dispatch', label: '🚚 Dispatch Orders' },
+    { path: '/wm/cyclecount', label: '🔄 Cycle Counting' },
+    { path: '/wm/reports', label: '📈 Reports' },
+  ],
+  receiver: [
+    { path: '/wm', label: '🏠 Dashboard' },
+    { path: '/wm/grn', label: '📥 Receive (GRN)' },
+    { path: '/wm/putaway', label: '🔀 Putaway Tasks' },
+    { path: '/wm/inventory', label: '📊 Inventory' },
+    { path: '/wm/cyclecount', label: '🔄 Cycle Counting' },
+    { path: '/wm/reports', label: '📈 Reports' },
+  ],
+  picker: [
+    { path: '/wm', label: '🏠 Dashboard' },
+    { path: '/wm/putaway', label: '🔀 Putaway Tasks' },
+    { path: '/wm/inventory', label: '📊 Inventory' },
+    { path: '/wm/dispatch', label: '🚚 Dispatch Orders' },
+    { path: '/wm/cyclecount', label: '🔄 Cycle Counting' },
+    { path: '/wm/reports', label: '📈 Reports' },
+  ],
 };
 
 export default function AppShell({ children }) {
@@ -47,8 +76,11 @@ export default function AppShell({ children }) {
 
   const handleLogout = () => { logout(); navigate('/login'); };
 
+  const rootByRole = { warehouse_manager: '/wm', receiver: '/wm', picker: '/wm' };
+  const roleRoot = rootByRole[user?.role] || `/${user?.role}`;
+
   const isActive = (path) => {
-    if (path === `/${user?.role}`) return location.pathname === path;
+    if (path === roleRoot) return location.pathname === path;
     return location.pathname.startsWith(path);
   };
 
@@ -81,7 +113,10 @@ export default function AppShell({ children }) {
         <nav className="flex-1 p-3 space-y-1 overflow-y-auto"><NavLinks /></nav>
         <div className="p-4 border-t">
           <p className="text-xs font-medium text-gray-700 truncate">{user?.name}</p>
-          <p className="text-xs text-gray-400 capitalize mb-3">{user?.role}</p>
+          <p className="text-xs text-gray-400 capitalize mb-3">{user?.role?.replace('_',' ')}</p>
+          <Link to="/modules" className="w-full text-xs text-blue-500 hover:text-blue-700 text-left py-1 block mb-1">
+            ⬡ Module Selector
+          </Link>
           <button onClick={handleLogout} className="w-full text-xs text-red-500 hover:text-red-700 text-left py-1">
             Sign out →
           </button>

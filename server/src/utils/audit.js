@@ -45,4 +45,28 @@ async function logStockTransaction(dbClient, stockItemId, type, quantity, refere
   }
 }
 
-module.exports = { logAudit, logStockTransaction };
+/**
+ * Log a WMS warehouse stock transaction event.
+ */
+async function logWmsTransaction(dbClient, itemMasterId, binId, type, quantity, referenceId, referenceType, userId, notes = null) {
+  try {
+    await dbClient.query(
+      `INSERT INTO wms_stock_transactions (item_master_id, bin_id, transaction_type, quantity, reference_id, reference_type, notes, user_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+      [
+        itemMasterId || null,
+        binId || null,
+        type,
+        quantity,
+        referenceId ? String(referenceId) : null,
+        referenceType || null,
+        notes || null,
+        userId || null,
+      ]
+    );
+  } catch (err) {
+    console.error('[wms_tx] failed to log:', err.message);
+  }
+}
+
+module.exports = { logAudit, logStockTransaction, logWmsTransaction };

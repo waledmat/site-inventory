@@ -8,32 +8,34 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(() => {
     try { return JSON.parse(localStorage.getItem('user')); } catch { return null; }
   });
+  const [token, setToken] = useState(() => localStorage.getItem('token'));
 
-  const login = (token, userData) => {
-    localStorage.setItem('token', token);
+  const login = (tok, userData) => {
+    localStorage.setItem('token', tok);
     localStorage.setItem('user', JSON.stringify(userData));
     setUser(userData);
+    setToken(tok);
   };
 
   const logout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     setUser(null);
+    setToken(null);
   };
 
   // Refresh token on startup to pick up any role changes since last login
   useEffect(() => {
-    const token = localStorage.getItem('token');
-    if (!token) return;
+    const storedToken = localStorage.getItem('token');
+    if (!storedToken) return;
     api.get('/auth/me').then(r => {
       login(r.data.token, r.data.user);
     }).catch(() => {
-      // Token is invalid/expired — clear and let the user log in again
       logout();
     });
   }, []);
 
-  return <AuthContext.Provider value={{ user, login, logout }}>{children}</AuthContext.Provider>;
+  return <AuthContext.Provider value={{ user, token, login, logout }}>{children}</AuthContext.Provider>;
 }
 
 export const useAuth = () => useContext(AuthContext);

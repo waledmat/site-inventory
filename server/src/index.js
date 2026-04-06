@@ -69,6 +69,17 @@ app.use('/api/settings', require('./routes/settings.routes'));
 app.use('/api/audit', require('./routes/audit.routes'));
 app.use('/api/transactions', require('./routes/transactions.routes'));
 
+// WMS routes
+app.use('/api/wms/suppliers',  require('./routes/wms.suppliers.routes'));
+app.use('/api/wms/items',      require('./routes/wms.items.routes'));
+app.use('/api/wms/locations',  require('./routes/wms.locations.routes'));
+app.use('/api/wms/receiving',  require('./routes/wms.receiving.routes'));
+app.use('/api/wms/putaway',    require('./routes/wms.putaway.routes'));
+app.use('/api/wms/inventory',  require('./routes/wms.inventory.routes'));
+app.use('/api/wms/dispatch',   require('./routes/wms.dispatch.routes'));
+app.use('/api/wms/cyclecount', require('./routes/wms.cyclecount.routes'));
+app.use('/api/wms/reports',    require('./routes/wms.reports.routes'));
+
 app.use(require('./middleware/errorHandler'));
 
 // Start cron job only when running for real (not during tests)
