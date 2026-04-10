@@ -5,26 +5,128 @@ import Modal from '../../components/common/Modal';
 import Badge from '../../components/common/Badge';
 
 const emptyForm = { project_number: '', name: '', location: '', start_date: '', end_date: '' };
+const emptySearch = { name: '', id: '' };
+
+function UserSearchModal({ isOpen, onClose, title, accentColor, role, onAssign }) {
+  const [search, setSearch] = useState(emptySearch);
+  const [results, setResults] = useState([]);
+  const [selected, setSelected] = useState(null);
+  const [searched, setSearched] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  const reset = () => { setSearch(emptySearch); setResults([]); setSelected(null); setSearched(false); };
+
+  const handleClose = () => { reset(); onClose(); };
+
+  const doSearch = async () => {
+    setLoading(true); setSearched(true); setSelected(null);
+    try {
+      const { data } = await api.get(`/users?role=${role}`);
+      const nameQ = search.name.toLowerCase().trim();
+      const idQ = search.id.toLowerCase().trim();
+      setResults(data.filter(u => {
+        const nameMatch = !nameQ || u.name.toLowerCase().includes(nameQ);
+        const idMatch = !idQ || (u.employee_id || '').toLowerCase().includes(idQ);
+        return nameMatch && idMatch;
+      }));
+    } finally { setLoading(false); }
+  };
+
+  const handleAssign = async () => {
+    if (!selected) return;
+    await onAssign(selected.id);
+    handleClose();
+  };
+
+  const accent = accentColor === 'purple'
+    ? { btn: 'bg-purple-600 hover:bg-purple-700', row: 'bg-purple-100', hover: 'hover:bg-purple-50' }
+    : { btn: 'bg-blue-600 hover:bg-blue-700', row: 'bg-blue-100', hover: 'hover:bg-blue-50' };
+
+  return (
+    <Modal isOpen={isOpen} onClose={handleClose} title={title}>
+      <div className="space-y-3">
+        <div className="flex gap-2">
+          <div className="flex-1">
+            <label className="block text-xs font-medium text-gray-600 mb-1">Name</label>
+            <input
+              autoFocus
+              placeholder="Search by name…"
+              value={search.name}
+              onChange={e => setSearch(p => ({ ...p, name: e.target.value }))}
+              onKeyDown={e => e.key === 'Enter' && doSearch()}
+              className="w-full border rounded-lg px-3 py-2 text-sm"
+            />
+          </div>
+          <div className="flex-1">
+            <label className="block text-xs font-medium text-gray-600 mb-1">Employee ID</label>
+            <input
+              placeholder="Search by ID…"
+              value={search.id}
+              onChange={e => setSearch(p => ({ ...p, id: e.target.value }))}
+              onKeyDown={e => e.key === 'Enter' && doSearch()}
+              className="w-full border rounded-lg px-3 py-2 text-sm"
+            />
+          </div>
+          <div className="flex items-end">
+            <button
+              onClick={doSearch}
+              className={`${accent.btn} text-white px-4 py-2 rounded-lg text-sm font-medium`}
+            >
+              {loading ? '…' : 'Search'}
+            </button>
+          </div>
+        </div>
+
+        {searched && (
+          <div className="border rounded-lg divide-y max-h-48 overflow-y-auto">
+            {results.length === 0 ? (
+              <p className="px-3 py-3 text-sm text-gray-400 text-center">No users found</p>
+            ) : results.map(u => (
+              <div
+                key={u.id}
+                onClick={() => setSelected(u)}
+                className={`px-3 py-2 text-sm cursor-pointer ${accent.hover} ${selected?.id === u.id ? accent.row + ' font-medium' : ''}`}
+              >
+                <span className="font-medium">{u.name}</span>
+                <span className="text-gray-400 ml-2 text-xs">ID: {u.employee_id}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {selected && (
+          <div className="bg-gray-50 border rounded-lg px-3 py-2 text-sm">
+            Selected: <span className="font-semibold">{selected.name}</span>
+            <span className="text-gray-500 ml-2">({selected.employee_id})</span>
+          </div>
+        )}
+
+        <div className="flex gap-3 pt-1">
+          <button
+            onClick={handleAssign}
+            disabled={!selected}
+            className={`flex-1 ${accent.btn} text-white py-2 rounded-lg text-sm disabled:opacity-40`}
+          >
+            Assign
+          </button>
+          <button onClick={handleClose} className="flex-1 border py-2 rounded-lg text-sm">Cancel</button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
 
 export default function ProjectManagement() {
   const [projects, setProjects] = useState([]);
-  const [users, setUsers] = useState([]);
   const [modal, setModal] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [editing, setEditing] = useState(null);
   const [skModal, setSkModal] = useState(null);
-  const [selectedSk, setSelectedSk] = useState('');
   const [rqModal, setRqModal] = useState(null);
-  const [selectedRq, setSelectedRq] = useState('');
-  const [requesters, setRequesters] = useState([]);
   const [error, setError] = useState('');
 
   const load = () => api.get('/projects').then(r => setProjects(r.data));
-  useEffect(() => {
-    load();
-    api.get('/users?role=storekeeper').then(r => setUsers(r.data));
-    api.get('/users?role=requester').then(r => setRequesters(r.data));
-  }, []);
+  useEffect(() => { load(); }, []);
 
   const openCreate = () => { setEditing(null); setForm(emptyForm); setModal(true); setError(''); };
   const openEdit = p => { setEditing(p.id); setForm(p); setModal(true); setError(''); };
@@ -36,18 +138,6 @@ export default function ProjectManagement() {
       else await api.post('/projects', form);
       setModal(false); load();
     } catch (err) { setError(err.response?.data?.error || 'Error saving project'); }
-  };
-
-  const assignSk = async () => {
-    if (!selectedSk) return;
-    await api.post(`/projects/${skModal}/storekeepers`, { user_id: selectedSk });
-    setSkModal(null); load();
-  };
-
-  const assignRq = async () => {
-    if (!selectedRq) return;
-    await api.post(`/projects/${rqModal}/requesters`, { user_id: selectedRq });
-    setRqModal(null); load();
   };
 
   const archive = async id => {
@@ -67,7 +157,7 @@ export default function ProjectManagement() {
         <div className="flex gap-2">
           <button onClick={() => openEdit(row)} className="text-xs text-blue-600 hover:underline">Edit</button>
           <button onClick={() => setSkModal(id)} className="text-xs text-green-600 hover:underline">Assign SK</button>
-          <button onClick={() => { setRqModal(id); setSelectedRq(''); }} className="text-xs text-purple-600 hover:underline">Assign Requester</button>
+          <button onClick={() => setRqModal(id)} className="text-xs text-purple-600 hover:underline">Assign Requester</button>
           {row.is_active && <button onClick={() => archive(id)} className="text-xs text-red-500 hover:underline">Archive</button>}
         </div>
       )
@@ -106,33 +196,29 @@ export default function ProjectManagement() {
         </form>
       </Modal>
 
-      <Modal isOpen={!!skModal} onClose={() => setSkModal(null)} title="Assign Storekeeper">
-        <div className="space-y-3">
-          <select value={selectedSk} onChange={e => setSelectedSk(e.target.value)}
-            className="w-full border rounded-lg px-3 py-2 text-sm">
-            <option value="">Select storekeeper…</option>
-            {users.map(u => <option key={u.id} value={u.id}>{u.name} — {u.email}</option>)}
-          </select>
-          <div className="flex gap-3">
-            <button onClick={assignSk} className="flex-1 bg-blue-600 text-white py-2 rounded-lg text-sm">Assign</button>
-            <button onClick={() => setSkModal(null)} className="flex-1 border py-2 rounded-lg text-sm">Cancel</button>
-          </div>
-        </div>
-      </Modal>
+      <UserSearchModal
+        isOpen={!!skModal}
+        onClose={() => setSkModal(null)}
+        title="Assign Storekeeper"
+        accentColor="blue"
+        role="storekeeper"
+        onAssign={async userId => {
+          await api.post(`/projects/${skModal}/storekeepers`, { user_id: userId });
+          load();
+        }}
+      />
 
-      <Modal isOpen={!!rqModal} onClose={() => setRqModal(null)} title="Assign Requester">
-        <div className="space-y-3">
-          <select value={selectedRq} onChange={e => setSelectedRq(e.target.value)}
-            className="w-full border rounded-lg px-3 py-2 text-sm">
-            <option value="">Select requester…</option>
-            {requesters.map(u => <option key={u.id} value={u.id}>{u.name} ({u.employee_id})</option>)}
-          </select>
-          <div className="flex gap-3">
-            <button onClick={assignRq} className="flex-1 bg-purple-600 text-white py-2 rounded-lg text-sm">Assign</button>
-            <button onClick={() => setRqModal(null)} className="flex-1 border py-2 rounded-lg text-sm">Cancel</button>
-          </div>
-        </div>
-      </Modal>
+      <UserSearchModal
+        isOpen={!!rqModal}
+        onClose={() => setRqModal(null)}
+        title="Assign Requester"
+        accentColor="purple"
+        role="requester"
+        onAssign={async userId => {
+          await api.post(`/projects/${rqModal}/requesters`, { user_id: userId });
+          load();
+        }}
+      />
     </div>
   );
 }

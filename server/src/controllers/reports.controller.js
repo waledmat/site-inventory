@@ -59,12 +59,18 @@ exports.summary = async (req, res, next) => {
        JOIN issue_items ii ON ii.issue_id = i.id
        ${wc} GROUP BY p.name ORDER BY p.name`, params
     );
+    // Build a separate where clause for returns (using return_date instead of issue_date)
+    let rwhere = [], rparams = [];
+    if (project_id) { rparams.push(project_id); rwhere.push(`r.project_id = $${rparams.length}`); }
+    if (date_from)  { rparams.push(date_from);  rwhere.push(`r.return_date >= $${rparams.length}`); }
+    if (date_to)    { rparams.push(date_to);    rwhere.push(`r.return_date <= $${rparams.length}`); }
+    const rwc = rwhere.length ? 'WHERE ' + rwhere.join(' AND ') : '';
+
     const returned = await db.query(
       `SELECT p.name as project_name, SUM(r.quantity_returned) as total_returned
        FROM material_returns r
-       JOIN material_issues i ON i.project_id = r.project_id
        JOIN projects p ON p.id = r.project_id
-       ${wc} GROUP BY p.name`, params
+       ${rwc} GROUP BY p.name`, rparams
     );
 
     const issuedRows  = issued.rows;
@@ -316,7 +322,7 @@ exports.exportExcel = async (req, res, next) => {
     const wc = where.length ? 'WHERE ' + where.join(' AND ') : '';
 
     const { rows } = await db.query(
-      `SELECT i.delivery_note_id, p.name as project, i.issue_date,
+      `SELECT i.delivery_note_id, mr.request_number, p.name as project, i.issue_date,
               sk.name as storekeeper, rc.name as receiver,
               ii.item_number, ii.description_1, ii.quantity_issued, ii.uom
        FROM material_issues i
@@ -324,6 +330,7 @@ exports.exportExcel = async (req, res, next) => {
        JOIN users sk ON sk.id = i.storekeeper_id
        LEFT JOIN users rc ON rc.id = i.receiver_id
        JOIN issue_items ii ON ii.issue_id = i.id
+       LEFT JOIN material_requests mr ON mr.id = i.request_id
        ${wc} ORDER BY i.issue_date DESC`, params
     );
 
@@ -375,6 +382,7 @@ exports.exportExcel = async (req, res, next) => {
       name: 'Issues',
       data: rows.map(r => ({
         'Delivery Note':  r.delivery_note_id,
+        'Request Ref':    r.request_number || '',
         'Project':        r.project,
         'Issue Date':     r.issue_date,
         'Storekeeper':    r.storekeeper,

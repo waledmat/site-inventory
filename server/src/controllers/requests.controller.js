@@ -1,4 +1,5 @@
 const db = require('../config/db');
+const { nextRef } = require('../utils/sequences');
 
 exports.list = async (req, res, next) => {
   try {
@@ -21,7 +22,7 @@ exports.list = async (req, res, next) => {
 
     const whereClause = where.length ? 'WHERE ' + where.join(' AND ') : '';
     const { rows } = await db.query(
-      `SELECT r.*, p.name as project_name,
+      `SELECT r.*, r.request_number, p.name as project_name,
               u.name as requester_name, u.position as requester_position,
               (SELECT COUNT(*) FROM request_items ri WHERE ri.request_id = r.id) as item_count
        FROM material_requests r
@@ -40,10 +41,31 @@ exports.create = async (req, res, next) => {
     const { project_id, items, notes } = req.body;
     if (!project_id || !items?.length) return res.status(400).json({ error: 'project_id and items required' });
 
+    // Validate items have positive quantities
+    for (const item of items) {
+      if (!item.quantity_requested || parseFloat(item.quantity_requested) <= 0) {
+        return res.status(400).json({ error: 'All items must have a quantity greater than 0' });
+      }
+    }
+
+    // Requester must be assigned to the target project
+    if (req.user.role === 'requester') {
+      const assigned = await db.query(
+        'SELECT 1 FROM project_requesters WHERE user_id = $1 AND project_id = $2',
+        [req.user.id, project_id]
+      );
+      if (!assigned.rows.length) return res.status(403).json({ error: 'Not assigned to this project' });
+    }
+
+    // Verify project exists
+    const proj = await db.query('SELECT 1 FROM projects WHERE id = $1', [project_id]);
+    if (!proj.rows.length) return res.status(400).json({ error: 'Project not found' });
+
     await client.query('BEGIN');
+    const request_number = await nextRef(client, 'req_seq', 'req_seq_year', 'REQ');
     const req_res = await client.query(
-      `INSERT INTO material_requests (project_id, requester_id, notes) VALUES ($1,$2,$3) RETURNING *`,
-      [project_id, req.user.id, notes || null]
+      `INSERT INTO material_requests (project_id, requester_id, notes, request_number) VALUES ($1,$2,$3,$4) RETURNING *`,
+      [project_id, req.user.id, notes || null, request_number]
     );
     const request = req_res.rows[0];
 
@@ -105,10 +127,10 @@ exports.reject = async (req, res, next) => {
     const { rejection_reason } = req.body;
     const { rows } = await db.query(
       `UPDATE material_requests SET status = 'rejected', rejection_reason = $1, updated_at = NOW()
-       WHERE id = $2 RETURNING *`,
+       WHERE id = $2 AND status IN ('pending', 'escalated') RETURNING *`,
       [rejection_reason || null, req.params.id]
     );
-    if (!rows[0]) return res.status(404).json({ error: 'Request not found' });
+    if (!rows[0]) return res.status(400).json({ error: 'Request not found or cannot be rejected in its current status' });
     res.json(rows[0]);
   } catch (err) { next(err); }
 };

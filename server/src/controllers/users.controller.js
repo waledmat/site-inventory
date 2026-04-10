@@ -1,5 +1,7 @@
 const bcrypt = require('bcrypt');
 const db = require('../config/db');
+const XLSX = require('xlsx');
+const userImportService = require('../services/userImport.service');
 
 exports.list = async (req, res, next) => {
   try {
@@ -19,6 +21,9 @@ exports.create = async (req, res, next) => {
   try {
     const { name, employee_id, role, position, password } = req.body;
     if (!name || !employee_id || !role || !password) return res.status(400).json({ error: 'name, employee_id, role, password required' });
+    if (password.length < 8 || !/[A-Z]/.test(password) || !/[0-9]/.test(password)) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters with at least one uppercase letter and one number' });
+    }
     const hash = await bcrypt.hash(password, 10);
     const { rows } = await db.query(
       `INSERT INTO users (name, employee_id, role, position, password_hash)
@@ -73,5 +78,38 @@ exports.authorize = async (req, res, next) => {
     );
     if (!rows[0]) return res.status(404).json({ error: 'User not found' });
     res.json(rows[0]);
+  } catch (err) { next(err); }
+};
+
+exports.templateUsers = (req, res) => {
+  const headers = ['NAME', 'EMPLOYEE ID', 'ROLE', 'POSITION', 'PASSWORD'];
+  const sample = [
+    ['Ahmed Al-Farsi', '1050', 'storekeeper', 'Site Storekeeper', 'Pass@1234'],
+    ['Sara Al-Ahmadi', '',     'requester',   'Project Engineer',  ''],
+  ];
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet([headers, ...sample]);
+  ws['!cols'] = [{ wch: 25 }, { wch: 15 }, { wch: 15 }, { wch: 22 }, { wch: 15 }];
+  XLSX.utils.book_append_sheet(wb, ws, 'Users');
+  const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+  res.setHeader('Content-Disposition', 'attachment; filename="user-import-template.xlsx"');
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.send(buf);
+};
+
+exports.validateImport = async (req, res, next) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+    const result = await userImportService.parseUserImport(req.file.buffer);
+    res.json(result);
+  } catch (err) { next(err); }
+};
+
+exports.confirmImport = async (req, res, next) => {
+  try {
+    const { valid_rows } = req.body;
+    if (!valid_rows?.length) return res.status(400).json({ error: 'No valid rows to import' });
+    const created = await userImportService.confirmUserImport(valid_rows);
+    res.json({ message: `${created.length} users created`, created });
   } catch (err) { next(err); }
 };

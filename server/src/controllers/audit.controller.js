@@ -19,9 +19,17 @@ exports.list = async (req, res, next) => {
     params.push(parseInt(limit));
     params.push(offset);
     const { rows } = await db.query(
-      `SELECT a.*, u.name as user_name, u.role as user_role
+      `SELECT a.*, u.name as user_name, u.role as user_role,
+              CASE
+                WHEN a.entity_type = 'material_issue' THEN dn.dn_number
+                WHEN a.entity_type = 'material_return' THEN mr.return_number::text
+                ELSE NULL
+              END as ref_number
        FROM audit_log a
        LEFT JOIN users u ON u.id = a.user_id
+       LEFT JOIN material_issues mi ON mi.id::text = a.entity_id AND a.entity_type = 'material_issue'
+       LEFT JOIN delivery_notes dn ON dn.issue_id = mi.id
+       LEFT JOIN material_returns mr ON mr.id::text = a.entity_id AND a.entity_type = 'material_return'
        ${whereClause}
        ORDER BY a.created_at DESC
        LIMIT $${params.length - 1} OFFSET $${params.length}`,

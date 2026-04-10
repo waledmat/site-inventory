@@ -1,5 +1,6 @@
 const db = require('../config/db');
 const { logAudit, logStockTransaction } = require('../utils/audit');
+const { nextRef } = require('../utils/sequences');
 
 exports.pending = async (req, res, next) => {
   try {
@@ -46,7 +47,7 @@ exports.list = async (req, res, next) => {
     if (date_to) { params.push(date_to); where.push(`r.return_date <= $${params.length}`); }
     const whereClause = where.length ? 'WHERE ' + where.join(' AND ') : '';
     const { rows } = await db.query(
-      `SELECT r.*, ii.description_1, ii.uom, i.delivery_note_id, p.name as project_name, lb.name as logged_by_name
+      `SELECT r.*, r.return_number, ii.description_1, ii.uom, i.delivery_note_id, p.name as project_name, lb.name as logged_by_name
        FROM material_returns r
        JOIN issue_items ii ON ii.id = r.issue_item_id
        JOIN material_issues i ON i.id = ii.issue_id
@@ -83,10 +84,11 @@ exports.create = async (req, res, next) => {
       return res.status(400).json({ error: 'Return quantity exceeds issued quantity' });
     }
 
+    const return_number = await nextRef(client, 'ret_seq', 'ret_seq_year', 'RET');
     const { rows } = await client.query(
-      `INSERT INTO material_returns (issue_item_id, project_id, logged_by, quantity_returned, condition, notes)
-       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
-      [issue_item_id, project_id, req.user.id, quantity_returned, condition, notes || null]
+      `INSERT INTO material_returns (issue_item_id, project_id, logged_by, quantity_returned, condition, notes, return_number)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+      [issue_item_id, project_id, req.user.id, quantity_returned, condition, notes || null, return_number]
     );
 
     // Update stock + log transaction

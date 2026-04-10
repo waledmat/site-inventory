@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import api from '../../utils/axiosInstance';
+import TransactionHistoryModal from '../../components/common/TransactionHistoryModal';
 
 export default function DeliveryNotes() {
   const [issues, setIssues] = useState([]);
@@ -7,6 +8,7 @@ export default function DeliveryNotes() {
   const [loading, setLoading] = useState(false);
   const [detail, setDetail] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [historyRef, setHistoryRef] = useState(null);
 
   const [filters, setFilters] = useState({
     dn_number: '',
@@ -151,7 +153,10 @@ export default function DeliveryNotes() {
               {issues.map((issue, i) => (
                 <tr key={issue.id} className={`border-t hover:bg-gray-50 ${i % 2 === 0 ? '' : 'bg-gray-50/50'}`}>
                   <td className="px-4 py-3">
-                    <span className="font-mono font-semibold text-blue-700">{issue.delivery_note_id}</span>
+                    <button onClick={() => setHistoryRef(issue.delivery_note_id)}
+                      className="font-mono font-semibold text-blue-700 hover:underline">
+                      {issue.delivery_note_id}
+                    </button>
                   </td>
                   <td className="px-4 py-3 text-gray-600">{String(issue.issue_date).slice(0, 10)}</td>
                   <td className="px-4 py-3 font-medium text-gray-800">{issue.project_name}</td>
@@ -185,6 +190,8 @@ export default function DeliveryNotes() {
           </table>
         </div>
       )}
+
+      <TransactionHistoryModal refNumber={historyRef} onClose={() => setHistoryRef(null)} />
 
       {/* Detail Modal */}
       {detail && (

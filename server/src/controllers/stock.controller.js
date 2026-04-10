@@ -1,6 +1,27 @@
 const db = require('../config/db');
 const { logAudit, logStockTransaction } = require('../utils/audit');
 
+exports.create = async (req, res, next) => {
+  try {
+    const { project_id, item_number, category, description_1, description_2, uom, qty_on_hand } = req.body;
+    if (!project_id || !description_1 || !uom) {
+      return res.status(400).json({ error: 'project_id, description_1, and uom are required' });
+    }
+    const qty = parseFloat(qty_on_hand) || 0;
+    if (qty < 0) return res.status(400).json({ error: 'qty_on_hand cannot be negative' });
+
+    const { rows } = await db.query(
+      `INSERT INTO stock_items (project_id, item_number, category, description_1, description_2, uom, qty_on_hand)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)
+       ON CONFLICT (project_id, item_number) DO UPDATE
+         SET description_1=$4, description_2=$5, uom=$6, qty_on_hand=$7, updated_at=NOW()
+       RETURNING *`,
+      [project_id, item_number || null, category || null, description_1, description_2 || null, uom, qty]
+    );
+    res.status(201).json(rows[0]);
+  } catch (err) { next(err); }
+};
+
 exports.search = async (req, res, next) => {
   try {
     const { q = '', project_id, category, page = 1, limit = 50 } = req.query;

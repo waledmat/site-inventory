@@ -3,11 +3,13 @@ import api from '../../utils/axiosInstance';
 import Table from '../../components/common/Table';
 import Badge from '../../components/common/Badge';
 import Modal from '../../components/common/Modal';
+import TransactionHistoryModal from '../../components/common/TransactionHistoryModal';
 
 export default function MyRequests() {
   const [requests, setRequests] = useState([]);
   const [detail, setDetail] = useState(null);
   const [escalateNote, setEscalateNote] = useState('');
+  const [historyRef, setHistoryRef] = useState(null);
 
   const load = () => api.get('/requests').then(r => setRequests(r.data));
   useEffect(() => { load(); }, []);
@@ -23,6 +25,10 @@ export default function MyRequests() {
   };
 
   const cols = [
+    { key: 'request_number', header: 'Ref', render: v => v
+      ? <button onClick={() => setHistoryRef(v)} className="font-mono text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded hover:bg-blue-200">{v}</button>
+      : <span className="text-gray-300 text-xs">—</span>
+    },
     { key: 'created_at', header: 'Date', render: v => v?.slice(0,10) },
     { key: 'project_name', header: 'Project' },
     { key: 'item_count', header: 'Items' },
@@ -35,6 +41,7 @@ export default function MyRequests() {
     <div>
       <h2 className="text-2xl font-bold text-gray-800 mb-6">My Requests</h2>
       <Table columns={cols} data={requests} />
+      <TransactionHistoryModal refNumber={historyRef} onClose={() => setHistoryRef(null)} />
 
       <Modal isOpen={!!detail} onClose={() => setDetail(null)} title={`Request — ${detail?.project_name}`} wide>
         {detail && (

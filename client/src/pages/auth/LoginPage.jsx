@@ -27,7 +27,7 @@ export default function LoginPage() {
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-blue-100 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-8">
         <div className="text-center mb-8">
-          <div className="text-4xl mb-2">🏗️</div>
+          <img src="/favicon.svg" alt="Site Inventory" className="w-16 h-16 mx-auto mb-2" />
           <h1 className="text-2xl font-bold text-gray-800">Site Inventory</h1>
           <p className="text-gray-500 text-sm mt-1">Management System</p>
         </div>

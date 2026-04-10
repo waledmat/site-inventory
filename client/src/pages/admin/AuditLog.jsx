@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import api from '../../utils/axiosInstance';
+import * as XLSX from 'xlsx';
 
 export default function AuditLog() {
   const [rows, setRows] = useState([]);
@@ -44,6 +45,27 @@ export default function AuditLog() {
 
   const totalPages = Math.ceil(total / limit);
 
+  async function exportExcel() {
+    try {
+      const params = new URLSearchParams({ page: 1, limit: 10000, ...Object.fromEntries(Object.entries(filters).filter(([,v]) => v)) });
+      const r = await api.get(`/audit?${params}`);
+      const data = r.data.rows.map(row => ({
+        'Time': new Date(row.created_at).toLocaleString(),
+        'User': row.user_name || '',
+        'Role': row.user_role || '',
+        'Action': row.action,
+        'Entity': row.entity_type,
+        'Reference No.': row.ref_number || '',
+        'Changes': row.new_value ? JSON.stringify(JSON.parse(row.new_value)) : '',
+      }));
+      const ws = XLSX.utils.json_to_sheet(data);
+      ws['!cols'] = [{ wch: 20 }, { wch: 16 }, { wch: 12 }, { wch: 18 }, { wch: 16 }, { wch: 36 }, { wch: 50 }];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Audit Log');
+      XLSX.writeFile(wb, `Audit_Log_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    } catch { /* silent */ }
+  }
+
   return (
     <div className="space-y-4">
       <h2 className="text-2xl font-bold text-gray-800">Audit Log</h2>
@@ -62,7 +84,12 @@ export default function AuditLog() {
         <input type="date" name="date_to" value={filters.date_to} onChange={handleFilter} className="border rounded-lg px-3 py-2 text-sm" placeholder="To" />
       </div>
 
-      <div className="text-sm text-gray-500">{total} total entries</div>
+      <div className="flex items-center justify-between">
+        <div className="text-sm text-gray-500">{total} total entries</div>
+        <button onClick={exportExcel} className="bg-green-600 text-white text-sm px-4 py-2 rounded-lg hover:bg-green-700 font-medium">
+          Export Excel
+        </button>
+      </div>
 
       {/* Table */}
       <div className="bg-white border rounded-xl overflow-x-auto">
@@ -73,7 +100,7 @@ export default function AuditLog() {
               <th className="px-4 py-3 text-left">User</th>
               <th className="px-4 py-3 text-left">Action</th>
               <th className="px-4 py-3 text-left">Entity</th>
-              <th className="px-4 py-3 text-left">Entity ID</th>
+              <th className="px-4 py-3 text-left">Reference No.</th>
               <th className="px-4 py-3 text-left">Changes</th>
             </tr>
           </thead>
@@ -99,7 +126,7 @@ export default function AuditLog() {
                   </span>
                 </td>
                 <td className="px-4 py-3 text-gray-600 text-xs">{row.entity_type}</td>
-                <td className="px-4 py-3 text-gray-400 text-xs font-mono">{row.entity_id?.slice(0, 8)}…</td>
+                <td className="px-4 py-3 text-xs font-mono font-semibold text-blue-700">{row.ref_number || '—'}</td>
                 <td className="px-4 py-3 text-xs text-gray-500 max-w-xs">
                   {row.new_value && (
                     <details className="cursor-pointer">

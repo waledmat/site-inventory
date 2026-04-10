@@ -45,7 +45,43 @@ exports.create = async (req, res, next) => {
     const { request_id, project_id, receiver_id, items } = req.body;
     if (!project_id || !items?.length) return res.status(400).json({ error: 'project_id and items required' });
 
+    // Validate items have positive quantities
+    for (const item of items) {
+      if (!item.quantity_issued || parseFloat(item.quantity_issued) <= 0) {
+        return res.status(400).json({ error: 'All items must have a quantity greater than 0' });
+      }
+    }
+
+    // Storekeeper must be assigned to the target project
+    if (req.user.role === 'storekeeper') {
+      const assigned = await db.query(
+        'SELECT 1 FROM project_storekeepers WHERE user_id = $1 AND project_id = $2',
+        [req.user.id, project_id]
+      );
+      if (!assigned.rows.length) return res.status(403).json({ error: 'Not assigned to this project' });
+    }
+
     await client.query('BEGIN');
+
+    // Check stock availability for all items before proceeding
+    for (const item of items) {
+      if (item.stock_item_id) {
+        const { rows: stockRows } = await client.query(
+          'SELECT qty_on_hand, description_1 FROM stock_items WHERE id = $1',
+          [item.stock_item_id]
+        );
+        if (!stockRows[0]) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({ error: `Stock item not found: ${item.stock_item_id}` });
+        }
+        if (parseFloat(stockRows[0].qty_on_hand) < parseFloat(item.quantity_issued)) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({
+            error: `Insufficient stock for "${stockRows[0].description_1}": available ${stockRows[0].qty_on_hand}, requested ${item.quantity_issued}`
+          });
+        }
+      }
+    }
 
     // Generate delivery note ID: DN-YYYY-NNNN
     const seq = await client.query(`SELECT nextval('dn_seq') as n`);
@@ -131,11 +167,13 @@ async function getIssueData(id) {
   const { rows } = await db.query(
     `SELECT i.*, p.name as project_name,
             sk.name as storekeeper_name, sk.id as storekeeper_id_val,
-            rc.name as receiver_name, rc.id as receiver_id_val, rc.position as receiver_position
+            rc.name as receiver_name, rc.id as receiver_id_val, rc.position as receiver_position,
+            mr.request_number as request_ref
      FROM material_issues i
      JOIN projects p ON p.id = i.project_id
      JOIN users sk ON sk.id = i.storekeeper_id
      LEFT JOIN users rc ON rc.id = i.receiver_id
+     LEFT JOIN material_requests mr ON mr.id = i.request_id
      WHERE i.id = $1`, [id]
   );
   if (!rows[0]) return null;

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import api from '../../utils/axiosInstance';
+import TransactionHistoryModal from '../../components/common/TransactionHistoryModal';
 
 const PAGE_SIZE = 20;
 
@@ -13,6 +14,7 @@ export default function PendingReturns() {
   const [saving, setSaving] = useState(null);
   const [msg, setMsg] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
+  const [historyRef, setHistoryRef] = useState(null);
 
   const load = () => api.get('/returns/pending').then(r => setItems(r.data)).catch(() => {});
   useEffect(() => {
@@ -87,6 +89,7 @@ export default function PendingReturns() {
         <p className="text-xs text-gray-500 mb-3">{filtered.length} item{filtered.length !== 1 ? 's' : ''} pending return</p>
       )}
 
+      <TransactionHistoryModal refNumber={historyRef} onClose={() => setHistoryRef(null)} />
       {msg && <div className="mb-4 bg-green-50 border border-green-200 text-green-700 text-sm px-4 py-2 rounded-lg">{msg}</div>}
 
       {paginated.length === 0
@@ -104,9 +107,14 @@ export default function PendingReturns() {
                         {isOverdue && <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-medium">⚠️ Overdue</span>}
                         <span className="font-semibold text-gray-800 text-sm truncate">{item.description_1}</span>
                       </div>
-                      <div className="text-xs text-gray-500">
-                        {item.project_name} · DN: {item.delivery_note_id} · Issued by: {item.storekeeper_name}
-                        {item.receiver_name && ` · To: ${item.receiver_name}`}
+                      <div className="text-xs text-gray-500 flex items-center gap-1 flex-wrap">
+                        <span>{item.project_name} · DN:</span>
+                        <button onClick={() => setHistoryRef(item.delivery_note_id)}
+                          className="font-mono text-blue-600 hover:underline">
+                          {item.delivery_note_id}
+                        </button>
+                        <span>· Issued by: {item.storekeeper_name}</span>
+                        {item.receiver_name && <span>· To: {item.receiver_name}</span>}
                       </div>
                       <div className="flex gap-4 mt-2 text-xs">
                         <span>Issued: <strong>{item.quantity_issued}</strong></span>

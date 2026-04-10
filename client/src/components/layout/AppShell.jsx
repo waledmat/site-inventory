@@ -74,7 +74,8 @@ export default function AppShell({ children }) {
     <div className="min-h-screen bg-gray-50 flex flex-col lg:flex-row">
       {/* Sidebar — desktop */}
       <aside className="hidden lg:flex flex-col w-64 bg-white border-r border-gray-200 min-h-screen shrink-0">
-        <div className="p-5 border-b">
+        <div className="p-5 border-b flex items-center gap-3">
+          <img src="/favicon.svg" alt="logo" className="w-9 h-9 shrink-0" />
           <h1 className="font-bold text-blue-700 text-sm leading-tight">Site Inventory<br/>Management System</h1>
         </div>
         <nav className="flex-1 p-3 space-y-1 overflow-y-auto"><NavLinks /></nav>

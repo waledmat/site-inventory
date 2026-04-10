@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import api from '../../utils/axiosInstance';
 import StatCard from '../../components/common/StatCard';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, Cell } from 'recharts';
+import * as XLSX from 'xlsx';
 
 export default function SuperUserDashboard() {
   const [summary, setSummary] = useState(null);
@@ -11,6 +12,26 @@ export default function SuperUserDashboard() {
   const [selectedProject, setSelectedProject] = useState(null);
   const [detail, setDetail] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [pendingModal, setPendingModal] = useState(null); // 'pending' | 'overdue' | null
+
+  const exportToExcel = (rows, title) => {
+    const data = rows.map(r => ({
+      'Project': r.project_name,
+      'Item No.': r.item_number || '',
+      'Description': r.description_1,
+      'UOM': r.uom,
+      'Issued': parseFloat(r.quantity_issued),
+      'Returned': parseFloat(r.qty_returned),
+      'Remaining': parseFloat(r.qty_remaining),
+      'Issue Date': r.issue_date?.slice(0, 10),
+      'Receiver': r.receiver_name || '',
+      'Storekeeper': r.storekeeper_name || '',
+    }));
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, title.slice(0, 31));
+    XLSX.writeFile(wb, `${title.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
 
   useEffect(() => {
     api.get('/reports/summary').then(r => setSummary(r.data)).catch(() => {});
@@ -68,8 +89,12 @@ export default function SuperUserDashboard() {
       {/* Stat cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard title="Active Projects" value={projects.filter(p => p.is_active).length} icon="🏗️" color="blue" />
-        <StatCard title="Pending Returns" value={pending.length} icon="⏳" color="yellow" />
-        <StatCard title="Overdue" value={overdue.length} icon="⚠️" color="red" />
+        <div className="cursor-pointer" onClick={() => setPendingModal('pending')}>
+          <StatCard title="Pending Returns" value={pending.length} icon="⏳" color="yellow" />
+        </div>
+        <div className="cursor-pointer" onClick={() => setPendingModal('overdue')}>
+          <StatCard title="Overdue" value={overdue.length} icon="⚠️" color="red" />
+        </div>
         <StatCard title="Total Projects" value={projects.length} icon="📋" color="gray" />
       </div>
 
@@ -199,6 +224,66 @@ export default function SuperUserDashboard() {
           )}
         </div>
       )}
+
+      {/* Pending Returns / Overdue Modal */}
+      {pendingModal && (() => {
+        const rows = pendingModal === 'overdue' ? overdue : pending;
+        const title = pendingModal === 'overdue' ? 'Overdue Returns' : 'Pending Returns';
+        return (
+          <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setPendingModal(null)}>
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between px-6 py-4 border-b">
+                <h3 className="text-lg font-bold text-gray-800">{title} <span className="ml-2 text-sm font-normal text-gray-500">({rows.length} items)</span></h3>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => exportToExcel(rows, title)}
+                    className="bg-green-600 text-white text-sm px-3 py-1.5 rounded-lg hover:bg-green-700 font-medium"
+                  >
+                    Export Excel
+                  </button>
+                  <button onClick={() => setPendingModal(null)} className="text-gray-400 hover:text-gray-700 text-2xl font-bold leading-none">✕</button>
+                </div>
+              </div>
+              <div className="overflow-auto flex-1">
+                {rows.length === 0 ? (
+                  <div className="p-10 text-center text-gray-400 text-sm">No items found</div>
+                ) : (
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-50 sticky top-0">
+                      <tr>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Project</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Item No.</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Description</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">UOM</th>
+                        <th className="px-4 py-3 text-right text-xs font-medium text-blue-600">Issued</th>
+                        <th className="px-4 py-3 text-right text-xs font-medium text-green-600">Returned</th>
+                        <th className="px-4 py-3 text-right text-xs font-medium text-red-600">Remaining</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Issue Date</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500">Receiver</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rows.map((r, i) => (
+                        <tr key={i} className={`border-t ${r.issue_date < today ? 'bg-red-50/50' : ''}`}>
+                          <td className="px-4 py-2.5 text-xs text-gray-700 font-medium max-w-[140px] truncate">{r.project_name}</td>
+                          <td className="px-4 py-2.5 text-xs font-mono text-gray-500">{r.item_number || '—'}</td>
+                          <td className="px-4 py-2.5 text-gray-800">{r.description_1}</td>
+                          <td className="px-4 py-2.5 text-xs text-gray-500">{r.uom}</td>
+                          <td className="px-4 py-2.5 text-right font-semibold text-blue-700">{parseFloat(r.quantity_issued).toFixed(2)}</td>
+                          <td className="px-4 py-2.5 text-right font-semibold text-green-700">{parseFloat(r.qty_returned).toFixed(2)}</td>
+                          <td className="px-4 py-2.5 text-right font-bold text-red-600">{parseFloat(r.qty_remaining).toFixed(2)}</td>
+                          <td className="px-4 py-2.5 text-xs text-gray-500">{r.issue_date?.slice(0, 10)}</td>
+                          <td className="px-4 py-2.5 text-xs text-gray-500">{r.receiver_name || '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Project Timelines */}
       <div className="bg-white rounded-xl border p-5">

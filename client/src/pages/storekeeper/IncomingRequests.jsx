@@ -4,6 +4,7 @@ import api from '../../utils/axiosInstance';
 import Table from '../../components/common/Table';
 import Badge from '../../components/common/Badge';
 import Modal from '../../components/common/Modal';
+import TransactionHistoryModal from '../../components/common/TransactionHistoryModal';
 
 export default function IncomingRequests() {
   const [requests, setRequests] = useState([]);
@@ -13,6 +14,7 @@ export default function IncomingRequests() {
   const [detail, setDetail] = useState(null);
   const [rejectReason, setRejectReason] = useState('');
   const [showReject, setShowReject] = useState(false);
+  const [historyRef, setHistoryRef] = useState(null);
   const navigate = useNavigate();
 
   useEffect(() => { api.get('/projects').then(r => setProjects(r.data)).catch(() => {}); }, []);
@@ -46,6 +48,10 @@ export default function IncomingRequests() {
     : requests;
 
   const cols = [
+    { key: 'request_number', header: 'Ref', render: v => v
+      ? <button onClick={() => setHistoryRef(v)} className="font-mono text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded hover:bg-blue-200">{v}</button>
+      : <span className="text-gray-300 text-xs">—</span>
+    },
     { key: 'created_at', header: 'Date', render: v => v?.slice(0,10) },
     { key: 'project_name', header: 'Project' },
     { key: 'requester_name', header: 'Requester' },
@@ -80,6 +86,8 @@ export default function IncomingRequests() {
         ? <div className="bg-white rounded-xl border p-8 text-center text-gray-400">No pending requests</div>
         : <Table columns={cols} data={displayed} />
       }
+
+      <TransactionHistoryModal refNumber={historyRef} onClose={() => setHistoryRef(null)} />
 
       <Modal isOpen={!!detail} onClose={() => setDetail(null)} title="Review Request" wide>
         {detail && (

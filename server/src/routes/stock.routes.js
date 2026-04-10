@@ -3,6 +3,7 @@ const ctrl = require('../controllers/stock.controller');
 const auth = require('../middleware/auth');
 const role = require('../middleware/role');
 
+router.post('/', auth, role('admin', 'superuser'), ctrl.create);
 router.get('/search', auth, ctrl.search);
 router.get('/low-stock', auth, ctrl.lowStock);
 router.get('/transactions', auth, role('admin', 'superuser'), ctrl.transactions);
