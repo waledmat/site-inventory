@@ -24,7 +24,7 @@ exports.create = async (req, res, next) => {
     if (password.length < 8 || !/[A-Z]/.test(password) || !/[0-9]/.test(password)) {
       return res.status(400).json({ error: 'Password must be at least 8 characters with at least one uppercase letter and one number' });
     }
-    const hash = await bcrypt.hash(password, 10);
+    const hash = await bcrypt.hash(password, 12);
     const { rows } = await db.query(
       `INSERT INTO users (name, employee_id, role, position, password_hash)
        VALUES ($1,$2,$3,$4,$5) RETURNING id, employee_id, name, role, position, is_active`,
@@ -52,7 +52,7 @@ exports.update = async (req, res, next) => {
   try {
     const { name, role, position, is_active, password } = req.body;
     let hash = null;
-    if (password) hash = await bcrypt.hash(password, 10);
+    if (password) hash = await bcrypt.hash(password, 12);
     const { rows } = await db.query(
       `UPDATE users SET
         name = COALESCE($1, name),

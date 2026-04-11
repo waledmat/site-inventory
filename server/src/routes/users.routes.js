@@ -4,7 +4,18 @@ const auth = require('../middleware/auth');
 const role = require('../middleware/role');
 const multer = require('multer');
 
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
+const EXCEL_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype === EXCEL_MIME || file.originalname.endsWith('.xlsx')) {
+      cb(null, true);
+    } else {
+      cb(Object.assign(new Error('Only .xlsx Excel files are allowed'), { status: 400 }));
+    }
+  },
+});
 
 // Bulk import routes must come BEFORE /:id to avoid Express treating 'bulk-import' as an id param
 router.get('/bulk-import/template', auth, role('admin'), ctrl.templateUsers);

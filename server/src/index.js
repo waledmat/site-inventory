@@ -7,7 +7,32 @@ const path = require('path');
 
 const app = express();
 
-app.use(helmet({ crossOriginResourcePolicy: false }));
+app.use(helmet({
+  crossOriginResourcePolicy: false,
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", 'data:'],
+      connectSrc: ["'self'"],
+      fontSrc: ["'self'"],
+      objectSrc: ["'none'"],
+      frameSrc: ["'none'"],
+    },
+  },
+  hsts: {
+    maxAge: 31536000,       // 1 year
+    includeSubDomains: true,
+    preload: true,
+  },
+  referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+  permittedCrossDomainPolicies: false,
+  dnsPrefetchControl: { allow: false },
+  frameguard: { action: 'deny' },
+  noSniff: true,
+  xssFilter: true,
+}));
 const allowedOrigins = [
   process.env.FRONTEND_URL || 'http://localhost:5173',
   'http://localhost:5173',
@@ -16,7 +41,19 @@ const allowedOrigins = [
 app.use(cors({ origin: (origin, cb) => cb(null, !origin || allowedOrigins.includes(origin)), credentials: true }));
 app.use(morgan('dev'));
 app.use(express.json({ limit: '10mb' }));
-app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
+// Serve uploaded files (delivery note PDFs) only to authenticated users
+const auth = require('./middleware/auth');
+const fs = require('fs');
+app.use('/uploads', auth, (req, res, next) => {
+  const filePath = path.join(__dirname, '../uploads', req.path);
+  if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'File not found' });
+  res.sendFile(filePath);
+});
+
+// Health check
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString(), uptime: Math.floor(process.uptime()) });
+});
 
 // Routes
 app.use('/api/auth', require('./routes/auth.routes'));
@@ -34,8 +71,14 @@ app.use('/api/transactions', require('./routes/transactions.routes'));
 
 app.use(require('./middleware/errorHandler'));
 
-// Start cron job
-require('./jobs/dailyReport.job');
+// Start cron job only when running for real (not during tests)
+if (process.env.NODE_ENV !== 'test') {
+  require('./jobs/dailyReport.job');
+}
 
-const PORT = process.env.PORT || 4000;
-app.listen(PORT, () => console.log(`✅ Server running on http://localhost:${PORT}`));
+module.exports = app;
+
+if (require.main === module) {
+  const PORT = process.env.PORT || 4000;
+  app.listen(PORT, () => console.log(`✅ Server running on http://localhost:${PORT}`));
+}

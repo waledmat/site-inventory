@@ -6,3 +6,4 @@ server/uploads/
 *.pdf
 .DS_Store
 dist/
+users_credentials.csv
