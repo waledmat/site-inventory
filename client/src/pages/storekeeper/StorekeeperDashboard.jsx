@@ -34,6 +34,7 @@ export default function StorekeeperDashboard() {
       </div>
       <div className="flex flex-wrap gap-3">
         <Link to="/storekeeper/incoming" className="bg-blue-600 text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-blue-700">📥 Incoming Requests</Link>
+        <Link to="/storekeeper/direct-issue" className="bg-green-600 text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-green-700">📤 Direct Issue</Link>
         <Link to="/storekeeper/pending" className="border px-4 py-2.5 rounded-xl text-sm hover:bg-gray-50">⏳ Pending Returns</Link>
         <Link to="/storekeeper/stock" className="border px-4 py-2.5 rounded-xl text-sm hover:bg-gray-50">🔍 Stock Search</Link>
         <button

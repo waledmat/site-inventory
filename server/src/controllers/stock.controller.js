@@ -152,6 +152,41 @@ exports.updateReorderPoint = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+exports.lookup = async (req, res, next) => {
+  try {
+    const { item_number, project_id } = req.query;
+    if (!item_number) return res.status(400).json({ error: 'item_number is required' });
+
+    const params = [item_number];
+    let where = [`s.item_number = $1`];
+
+    if (req.user.role === 'storekeeper') {
+      const sk = await db.query('SELECT project_id FROM project_storekeepers WHERE user_id = $1', [req.user.id]);
+      const ids = sk.rows.map(r => r.project_id);
+      if (!ids.length) return res.json([]);
+      params.push(ids);
+      where.push(`s.project_id = ANY($${params.length})`);
+    }
+
+    if (project_id) {
+      params.push(project_id);
+      where.push(`s.project_id = $${params.length}`);
+    }
+
+    const { rows } = await db.query(
+      `SELECT s.id, s.project_id, s.item_number, s.description_1, s.description_2,
+              s.category, s.uom, s.qty_on_hand, s.qty_issued, s.qty_pending_return,
+              p.name as project_name
+       FROM stock_items s
+       JOIN projects p ON p.id = s.project_id
+       WHERE ${where.join(' AND ')}
+       ORDER BY s.description_1`,
+      params
+    );
+    res.json(rows);
+  } catch (err) { next(err); }
+};
+
 exports.transactions = async (req, res, next) => {
   try {
     const { stock_item_id, type, date_from, date_to, page = 1, limit = 50 } = req.query;

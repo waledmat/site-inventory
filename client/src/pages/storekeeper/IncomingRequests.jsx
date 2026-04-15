@@ -92,11 +92,18 @@ export default function IncomingRequests() {
       <Modal isOpen={!!detail} onClose={() => setDetail(null)} title="Review Request" wide>
         {detail && (
           <div className="space-y-4">
+            {detail.request_number && (
+              <div className="flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-xl px-4 py-2.5">
+                <span className="text-xs text-blue-500 font-medium uppercase tracking-wide">Ref</span>
+                <span className="font-mono font-bold text-blue-800 text-base">{detail.request_number}</span>
+                <span className="ml-auto text-xs text-blue-400">{detail.created_at?.slice(0,10)}</span>
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div><span className="text-gray-500">Project:</span> <strong>{detail.project_name}</strong></div>
               <div><span className="text-gray-500">Requester:</span> {detail.requester_name}</div>
               <div><span className="text-gray-500">Position:</span> {detail.requester_position || '—'}</div>
-              <div><span className="text-gray-500">Date:</span> {detail.created_at?.slice(0,10)}</div>
+              <div><span className="text-gray-500">Status:</span> <strong>{detail.status}</strong></div>
             </div>
             {detail.notes && <div className="bg-gray-50 rounded-lg p-3 text-sm"><strong>Notes:</strong> {detail.notes}</div>}
             <table className="w-full text-sm border rounded-lg overflow-hidden">

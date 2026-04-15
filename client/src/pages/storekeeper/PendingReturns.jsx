@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import api from '../../utils/axiosInstance';
 import TransactionHistoryModal from '../../components/common/TransactionHistoryModal';
+import QRScanner from '../../components/common/QRScanner';
 import { useAuth } from '../../context/AuthContext';
 
 const PAGE_SIZE = 20;
@@ -17,6 +18,8 @@ export default function PendingReturns() {
   const [msg, setMsg] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [historyRef, setHistoryRef] = useState(null);
+  const [scanning, setScanning] = useState(false);
+  const [scanInfo, setScanInfo] = useState(null); // { item_number, description_1, uom, qty_on_hand }
 
   const load = (myFilter = filter) => {
     const params = new URLSearchParams();
@@ -63,6 +66,23 @@ export default function PendingReturns() {
     setCurrentPage(1);
   };
 
+  const handleScan = async (raw) => {
+    setScanInfo(null);
+    if (raw.startsWith('ITEM:')) {
+      const itemNumber = raw.slice(5).trim();
+      handleFilterChange(setSearchText, itemNumber);
+      // Look up full item info to show in the info card
+      try {
+        const { data } = await api.get(`/stock/lookup?item_number=${encodeURIComponent(itemNumber)}`);
+        if (data.length) setScanInfo(data[0]);
+      } catch { /* silently ignore */ }
+    } else if (raw.startsWith('DN:')) {
+      handleFilterChange(setSearchText, raw.slice(3).trim());
+    } else {
+      handleFilterChange(setSearchText, raw);
+    }
+  };
+
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
@@ -75,7 +95,7 @@ export default function PendingReturns() {
       </div>
 
       <div className="bg-white rounded-xl border p-4 mb-5 flex flex-wrap gap-3">
-        <input value={searchText} onChange={e => handleFilterChange(setSearchText, e.target.value)}
+        <input value={searchText} onChange={e => { handleFilterChange(setSearchText, e.target.value); setScanInfo(null); }}
           placeholder="Search by item name, item no., or DN number…"
           className="flex-1 min-w-48 border rounded-lg px-3 py-2 text-sm" />
         <select value={filterProject} onChange={e => handleFilterChange(setFilterProject, e.target.value)}
@@ -83,13 +103,43 @@ export default function PendingReturns() {
           <option value="">All Projects</option>
           {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>
+        <button
+          onClick={() => setScanning(true)}
+          className="flex items-center gap-1.5 border border-blue-300 text-blue-600 px-3 py-2 rounded-lg text-sm font-medium hover:bg-blue-50"
+          title="Scan item QR to filter"
+        >
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+              d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 3.5A2.5 2.5 0 0116 18H8a2.5 2.5 0 01-2.5-2.5V8A2.5 2.5 0 018 5.5h8A2.5 2.5 0 0118.5 8v.5" />
+          </svg>
+          Scan QR
+        </button>
         {(searchText || filterProject) && (
-          <button onClick={() => { setSearchText(''); setFilterProject(''); setCurrentPage(1); }}
+          <button onClick={() => { setSearchText(''); setFilterProject(''); setCurrentPage(1); setScanInfo(null); }}
             className="text-sm text-gray-500 hover:text-gray-800 px-3 py-2 border rounded-lg">
             ✕ Clear
           </button>
         )}
       </div>
+
+      {/* Scanned item info card */}
+      {scanInfo && (
+        <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-4 flex items-start gap-4">
+          <div className="flex-1">
+            <div className="text-xs text-blue-500 font-medium mb-1">Scanned Item</div>
+            <div className="font-semibold text-gray-800">{scanInfo.description_1}</div>
+            {scanInfo.description_2 && <div className="text-sm text-gray-500">{scanInfo.description_2}</div>}
+            <div className="flex gap-4 mt-2 text-xs text-gray-600">
+              <span>Code: <strong className="font-mono">{scanInfo.item_number}</strong></span>
+              <span>UOM: <strong>{scanInfo.uom}</strong></span>
+              <span>On Hand: <strong className="text-green-700">{scanInfo.qty_on_hand}</strong></span>
+            </div>
+          </div>
+          <button onClick={() => setScanInfo(null)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+        </div>
+      )}
+
+      <QRScanner isOpen={scanning} onClose={() => setScanning(false)} onScan={handleScan} />
 
       {filtered.length > 0 && (
         <p className="text-xs text-gray-500 mb-3">{filtered.length} item{filtered.length !== 1 ? 's' : ''} pending return</p>
