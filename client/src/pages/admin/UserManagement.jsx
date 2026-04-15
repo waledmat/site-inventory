@@ -7,6 +7,79 @@ import Modal from '../../components/common/Modal';
 const ROLES = ['admin', 'storekeeper', 'requester', 'superuser', 'coordinator', 'warehouse_manager', 'receiver', 'picker'];
 const emptyForm = { name: '', employee_id: '', role: 'requester', position: '', password: '' };
 
+const PERMISSION_GROUPS = [
+  {
+    group: 'Requests',
+    items: [
+      { key: 'can_submit_requests',  label: 'Submit material requests' },
+      { key: 'can_approve_requests', label: 'Approve / reject requests' },
+    ],
+  },
+  {
+    group: 'Stock & Inventory',
+    items: [
+      { key: 'can_view_stock',          label: 'View stock levels' },
+      { key: 'can_issue_material',      label: 'Issue material' },
+      { key: 'can_manage_returns',      label: 'Process material returns' },
+      { key: 'can_upload_packing_list', label: 'Upload packing list (Excel)' },
+      { key: 'can_view_all_projects',   label: 'View all projects (not just assigned)' },
+    ],
+  },
+  {
+    group: 'Reports & Export',
+    items: [
+      { key: 'can_view_reports', label: 'View analytics & reports' },
+      { key: 'can_export_data',  label: 'Export data (PDF / Excel)' },
+    ],
+  },
+  {
+    group: 'Administration',
+    items: [
+      { key: 'can_manage_users',    label: 'Manage users' },
+      { key: 'can_manage_projects', label: 'Manage projects' },
+      { key: 'can_view_audit_log',  label: 'View audit log' },
+    ],
+  },
+];
+
+// Permissions each role gets by default (locked — cannot be removed)
+const ROLE_DEFAULTS = {
+  admin: {
+    can_submit_requests: true, can_approve_requests: true,
+    can_view_stock: true, can_issue_material: true, can_manage_returns: true,
+    can_upload_packing_list: true, can_view_all_projects: true,
+    can_view_reports: true, can_export_data: true,
+    can_manage_users: true, can_manage_projects: true, can_view_audit_log: true,
+  },
+  superuser: {
+    can_submit_requests: true,
+    can_view_stock: true, can_upload_packing_list: true, can_view_all_projects: true,
+    can_view_reports: true, can_export_data: true, can_manage_projects: true,
+  },
+  storekeeper: {
+    can_view_stock: true, can_issue_material: true,
+    can_manage_returns: true, can_export_data: true,
+  },
+  requester: {
+    can_submit_requests: true,
+  },
+  coordinator: {
+    can_submit_requests: true, can_approve_requests: true, can_view_reports: true,
+  },
+  warehouse_manager: {
+    can_view_stock: true, can_view_all_projects: true,
+    can_view_reports: true, can_export_data: true, can_manage_projects: true,
+  },
+  receiver: {
+    can_view_stock: true,
+  },
+  picker: {
+    can_view_stock: true, can_issue_material: true,
+  },
+};
+
+const ALL_PERMISSION_KEYS = PERMISSION_GROUPS.flatMap(g => g.items.map(i => i.key));
+
 export default function UserManagement() {
   const [users, setUsers] = useState([]);
   const [filterText, setFilterText] = useState('');
@@ -19,6 +92,9 @@ export default function UserManagement() {
   const [newPassword, setNewPassword] = useState('');
   const [resetError, setResetError] = useState('');
   const [resetDone, setResetDone] = useState(false);
+  const [authTarget, setAuthTarget] = useState(null);
+  const [permissions, setPermissions] = useState({});
+  const [authSaved, setAuthSaved] = useState(false);
 
   // Import state
   const [importModal, setImportModal] = useState(false);
@@ -52,6 +128,19 @@ export default function UserManagement() {
 
   const authorize = async id => { await api.post(`/users/${id}/authorize`); load(); };
   const toggleActive = async u => { await api.put(`/users/${u.id}`, { is_active: !u.is_active }); load(); };
+
+  const openAuthority = async u => {
+    setAuthSaved(false);
+    const { data } = await api.get(`/users/${u.id}/permissions`);
+    setPermissions(data || {});
+    setAuthTarget(u);
+  };
+  const closeAuthority = () => setAuthTarget(null);
+  const saveAuthority = async () => {
+    await api.put(`/users/${authTarget.id}/permissions`, permissions);
+    setAuthSaved(true);
+  };
+  const togglePerm = key => setPermissions(p => ({ ...p, [key]: !p[key] }));
 
   const openReset = u => { setResetTarget(u); setNewPassword(''); setResetError(''); setResetDone(false); };
   const closeReset = () => setResetTarget(null);
@@ -134,11 +223,12 @@ export default function UserManagement() {
     {
       key: 'id', header: 'Actions',
       render: (id, row) => (
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <button onClick={() => openEdit(row)} className="text-xs text-blue-600 hover:underline">Edit</button>
           {row.role !== 'requester' && (
             <button onClick={() => authorize(id)} className="text-xs text-green-600 hover:underline">Authorize</button>
           )}
+          <button onClick={() => openAuthority(row)} className="text-xs text-purple-600 hover:underline">Authority</button>
           <button onClick={() => toggleActive(row)} className={`text-xs hover:underline ${row.is_active ? 'text-red-500' : 'text-gray-500'}`}>
             {row.is_active ? 'Deactivate' : 'Activate'}
           </button>
@@ -216,6 +306,88 @@ export default function UserManagement() {
             </div>
           </form>
         )}
+      </Modal>
+
+      {/* Customize Authority Modal */}
+      <Modal isOpen={!!authTarget} onClose={closeAuthority} title={`Customize Authority — ${authTarget?.name}`}>
+        {authTarget && (() => {
+          const roleDefaults = ROLE_DEFAULTS[authTarget.role] || {};
+          const defaultKeys = ALL_PERMISSION_KEYS.filter(k => roleDefaults[k]);
+          const extraKeys   = ALL_PERMISSION_KEYS.filter(k => !roleDefaults[k]);
+
+          return (
+            <div className="space-y-5 max-h-[65vh] overflow-y-auto pr-1">
+
+              {/* Default permissions */}
+              <div>
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="text-xs font-semibold text-gray-500 uppercase">Default</span>
+                  <span className="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full">Based on role: {authTarget.role}</span>
+                </div>
+                {defaultKeys.length === 0
+                  ? <p className="text-xs text-gray-400 italic">No default permissions for this role.</p>
+                  : (
+                    <div className="grid grid-cols-1 gap-1.5">
+                      {defaultKeys.map(key => {
+                        const label = PERMISSION_GROUPS.flatMap(g => g.items).find(i => i.key === key)?.label || key;
+                        return (
+                          <div key={key} className="flex items-center gap-3 bg-gray-50 rounded-lg px-3 py-2">
+                            <svg className="w-4 h-4 text-blue-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                              <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/>
+                            </svg>
+                            <span className="text-sm text-gray-600">{label}</span>
+                            <span className="ml-auto text-xs text-gray-400 flex items-center gap-1">
+                              <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                                <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd"/>
+                              </svg>
+                              Default
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )
+                }
+              </div>
+
+              {/* Additional / extra permissions */}
+              <div>
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="text-xs font-semibold text-gray-500 uppercase">Additional</span>
+                  <span className="text-xs bg-purple-100 text-purple-600 px-2 py-0.5 rounded-full">Extra privileges</span>
+                </div>
+                {extraKeys.length === 0
+                  ? <p className="text-xs text-gray-400 italic">This role already has all permissions.</p>
+                  : (
+                    <div className="grid grid-cols-1 gap-1.5">
+                      {extraKeys.map(key => {
+                        const label = PERMISSION_GROUPS.flatMap(g => g.items).find(i => i.key === key)?.label || key;
+                        return (
+                          <label key={key} className="flex items-center gap-3 cursor-pointer hover:bg-purple-50 rounded-lg px-3 py-2 transition-colors">
+                            <input
+                              type="checkbox"
+                              checked={!!permissions[key]}
+                              onChange={() => togglePerm(key)}
+                              className="w-4 h-4 rounded accent-purple-600"
+                            />
+                            <span className="text-sm text-gray-700">{label}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )
+                }
+              </div>
+            </div>
+          );
+        })()}
+        {authSaved && <p className="text-green-600 text-sm mt-3">✅ Authority saved!</p>}
+        <div className="flex gap-3 pt-4 border-t mt-4">
+          <button onClick={saveAuthority} className="flex-1 bg-blue-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-blue-700">
+            Save Authority
+          </button>
+          <button onClick={closeAuthority} className="flex-1 border py-2 rounded-lg text-sm">Cancel</button>
+        </div>
       </Modal>
 
       {/* Add / Edit User Modal */}

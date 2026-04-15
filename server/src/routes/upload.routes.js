@@ -18,6 +18,7 @@ const upload = multer({
 });
 
 router.get('/packing-list/template', auth, role('superuser', 'admin'), ctrl.template);
+router.get('/packing-list/history', auth, role('superuser', 'admin'), ctrl.history);
 router.post('/packing-list', auth, role('superuser', 'admin'), upload.single('file'), ctrl.validate);
 router.post('/packing-list/confirm', auth, role('superuser', 'admin'), ctrl.confirm);
 

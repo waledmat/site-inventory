@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
 import api from '../../utils/axiosInstance';
 import TransactionHistoryModal from '../../components/common/TransactionHistoryModal';
+import { useAuth } from '../../context/AuthContext';
 
 const PAGE_SIZE = 20;
 
 export default function PendingReturns() {
+  const { user } = useAuth();
   const [items, setItems] = useState([]);
   const [projects, setProjects] = useState([]);
   const [filterProject, setFilterProject] = useState('');
@@ -16,11 +18,15 @@ export default function PendingReturns() {
   const [currentPage, setCurrentPage] = useState(1);
   const [historyRef, setHistoryRef] = useState(null);
 
-  const load = () => api.get('/returns/pending').then(r => setItems(r.data)).catch(() => {});
+  const load = (myFilter = filter) => {
+    const params = new URLSearchParams();
+    if (myFilter === 'mine' && user?.id) params.set('storekeeper_id', user.id);
+    api.get(`/returns/pending?${params}`).then(r => setItems(r.data)).catch(() => {});
+  };
   useEffect(() => {
-    load();
+    load('all');
     api.get('/projects').then(r => setProjects(r.data)).catch(() => {});
-  }, []);
+  }, []); // eslint-disable-line
 
   const logReturn = async (itemId) => {
     const f = returnForm[itemId] || {};
@@ -61,7 +67,7 @@ export default function PendingReturns() {
     <div>
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-2xl font-bold text-gray-800">Pending Returns</h2>
-        <select value={filter} onChange={e => setFilter(e.target.value)}
+        <select value={filter} onChange={e => { setFilter(e.target.value); setCurrentPage(1); load(e.target.value); }}
           className="border rounded-lg px-3 py-2 text-sm">
           <option value="all">All Storekeepers</option>
           <option value="mine">My Issues Only</option>

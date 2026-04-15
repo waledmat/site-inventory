@@ -146,6 +146,7 @@ export default function DeliveryNotes() {
                 <th className="px-4 py-3 text-left font-medium text-gray-600">Receiver</th>
                 <th className="px-4 py-3 text-left font-medium text-gray-600">Issued By</th>
                 <th className="px-4 py-3 text-center font-medium text-gray-600">Items</th>
+                <th className="px-4 py-3 text-center font-medium text-gray-600">Return Status</th>
                 <th className="px-4 py-3 text-center font-medium text-gray-600">Actions</th>
               </tr>
             </thead>
@@ -166,6 +167,16 @@ export default function DeliveryNotes() {
                     <span className="bg-gray-100 text-gray-700 rounded-full px-2 py-0.5 text-xs font-medium">
                       {issue.item_count}
                     </span>
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    {(() => {
+                      const issued = parseFloat(issue.total_issued || 0);
+                      const returned = parseFloat(issue.total_returned || 0);
+                      if (issued === 0) return <span className="text-gray-400 text-xs">—</span>;
+                      if (returned >= issued) return <span className="bg-green-100 text-green-700 text-xs px-2 py-0.5 rounded-full font-medium">Complete</span>;
+                      if (returned > 0) return <span className="bg-orange-100 text-orange-700 text-xs px-2 py-0.5 rounded-full font-medium">Partial</span>;
+                      return <span className="bg-yellow-100 text-yellow-700 text-xs px-2 py-0.5 rounded-full font-medium">Pending</span>;
+                    })()}
                   </td>
                   <td className="px-4 py-3 text-center">
                     <div className="flex items-center justify-center gap-2">

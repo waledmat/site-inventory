@@ -116,6 +116,240 @@ function UserSearchModal({ isOpen, onClose, title, accentColor, role, onAssign }
   );
 }
 
+const fmt = v => v?.slice(0, 10) || '—';
+const num = v => Number(v || 0).toLocaleString();
+
+function DetailDrawer({ project, onClose, onEdit, onAssignSk, onAssignRq, onRemoveSk }) {
+  const [tab, setTab] = useState('overview');
+  if (!project) return null;
+
+  const tabs = [
+    { key: 'overview',    label: 'Overview' },
+    { key: 'people',      label: 'People' },
+    { key: 'packing',     label: 'Packing List' },
+    { key: 'requests',    label: 'Requests' },
+  ];
+
+  const statusColor = project.is_active
+    ? 'bg-green-100 text-green-700'
+    : 'bg-gray-100 text-gray-500';
+
+  return (
+    <div className="fixed inset-0 z-40 flex">
+      {/* Backdrop */}
+      <div className="flex-1 bg-black/30" onClick={onClose} />
+
+      {/* Panel */}
+      <div className="w-full max-w-2xl bg-white shadow-2xl flex flex-col h-full overflow-hidden">
+
+        {/* Header */}
+        <div className="px-6 pt-6 pb-4 border-b bg-gray-50">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                {project.project_number && (
+                  <span className="text-xs font-mono bg-blue-100 text-blue-700 px-2 py-0.5 rounded">
+                    {project.project_number}
+                  </span>
+                )}
+                <span className={`text-xs px-2 py-0.5 rounded font-medium ${statusColor}`}>
+                  {project.is_active ? 'Active' : 'Archived'}
+                </span>
+              </div>
+              <h2 className="text-xl font-bold text-gray-800">{project.name}</h2>
+              {project.location && <p className="text-sm text-gray-500 mt-0.5">{project.location}</p>}
+            </div>
+            <div className="flex gap-2 flex-shrink-0">
+              <button onClick={() => onEdit(project)}
+                className="text-xs bg-blue-600 text-white px-3 py-1.5 rounded-lg hover:bg-blue-700">
+                Edit
+              </button>
+              <button onClick={onClose}
+                className="text-gray-400 hover:text-gray-600 text-2xl leading-none px-1">×</button>
+            </div>
+          </div>
+
+          {/* Tabs */}
+          <div className="flex gap-1 mt-4">
+            {tabs.map(t => (
+              <button key={t.key} onClick={() => setTab(t.key)}
+                className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                  tab === t.key ? 'bg-blue-600 text-white' : 'text-gray-500 hover:bg-gray-100'
+                }`}>
+                {t.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto px-6 py-5">
+
+          {/* Overview Tab */}
+          {tab === 'overview' && (
+            <div className="space-y-5">
+              <div className="grid grid-cols-2 gap-4">
+                {[
+                  ['Project No', project.project_number || '—'],
+                  ['Location',   project.location || '—'],
+                  ['Start Date', fmt(project.start_date)],
+                  ['End Date',   fmt(project.end_date)],
+                ].map(([l, v]) => (
+                  <div key={l} className="bg-gray-50 rounded-xl p-4">
+                    <p className="text-xs text-gray-400 mb-1">{l}</p>
+                    <p className="font-semibold text-gray-800">{v}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* Stock summary cards */}
+              {project.stock_summary && (
+                <div>
+                  <p className="text-xs font-semibold text-gray-400 uppercase mb-3">Stock Summary</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    {[
+                      ['Total Items',    num(project.stock_summary.total_items),    'bg-blue-50   text-blue-700'],
+                      ['Qty On Hand',    num(project.stock_summary.total_on_hand),  'bg-green-50  text-green-700'],
+                      ['Qty Issued',     num(project.stock_summary.total_issued),   'bg-orange-50 text-orange-700'],
+                      ['Qty Returned',   num(project.stock_summary.total_returned), 'bg-purple-50 text-purple-700'],
+                    ].map(([l, v, cls]) => (
+                      <div key={l} className={`rounded-xl p-4 ${cls.split(' ')[0]}`}>
+                        <p className={`text-xs font-medium mb-1 ${cls.split(' ')[1]}`}>{l}</p>
+                        <p className={`text-2xl font-bold ${cls.split(' ')[1]}`}>{v}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* People Tab */}
+          {tab === 'people' && (
+            <div className="space-y-6">
+              {/* Storekeepers */}
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-sm font-semibold text-gray-700">Storekeepers</p>
+                  <button onClick={() => onAssignSk(project.id)}
+                    className="text-xs bg-green-600 text-white px-3 py-1 rounded-lg hover:bg-green-700">
+                    + Assign
+                  </button>
+                </div>
+                {project.storekeepers?.length === 0
+                  ? <p className="text-sm text-gray-400 italic">No storekeeper assigned.</p>
+                  : (
+                    <div className="space-y-2">
+                      {project.storekeepers.map(u => (
+                        <div key={u.id} className="flex items-center justify-between bg-green-50 rounded-lg px-4 py-2.5">
+                          <div>
+                            <p className="text-sm font-medium text-gray-800">{u.name}</p>
+                            <p className="text-xs text-gray-500">{u.employee_id}{u.position ? ` — ${u.position}` : ''}</p>
+                          </div>
+                          <button onClick={() => onRemoveSk(project.id, u.id)}
+                            className="text-xs text-red-400 hover:text-red-600">Remove</button>
+                        </div>
+                      ))}
+                    </div>
+                  )
+                }
+              </div>
+
+              {/* Requesters */}
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-sm font-semibold text-gray-700">Requesters</p>
+                  <button onClick={() => onAssignRq(project.id)}
+                    className="text-xs bg-purple-600 text-white px-3 py-1 rounded-lg hover:bg-purple-700">
+                    + Assign
+                  </button>
+                </div>
+                {project.requesters?.length === 0
+                  ? <p className="text-sm text-gray-400 italic">No requester assigned.</p>
+                  : (
+                    <div className="space-y-2">
+                      {project.requesters.map(u => (
+                        <div key={u.id} className="flex items-center bg-purple-50 rounded-lg px-4 py-2.5">
+                          <div>
+                            <p className="text-sm font-medium text-gray-800">{u.name}</p>
+                            <p className="text-xs text-gray-500">{u.employee_id}{u.position ? ` — ${u.position}` : ''}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )
+                }
+              </div>
+            </div>
+          )}
+
+          {/* Packing List Tab */}
+          {tab === 'packing' && (
+            <div>
+              {(!project.stock_items || project.stock_items.length === 0)
+                ? <p className="text-sm text-gray-400 italic">No stock items uploaded for this project.</p>
+                : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs border-collapse">
+                      <thead>
+                        <tr className="bg-gray-50 border-b">
+                          {['Item No', 'Description', 'Cat', 'UOM', 'On Hand', 'Issued', 'Returned', 'Container'].map(h => (
+                            <th key={h} className="text-left px-3 py-2 font-semibold text-gray-500 whitespace-nowrap">{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {project.stock_items.map((item, i) => (
+                          <tr key={i} className="border-b hover:bg-gray-50">
+                            <td className="px-3 py-2 font-mono text-gray-700">{item.item_number || '—'}</td>
+                            <td className="px-3 py-2 text-gray-800 max-w-[180px] truncate" title={item.description_1}>{item.description_1}</td>
+                            <td className="px-3 py-2">
+                              {item.category ? <span className="bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded text-xs">{item.category}</span> : '—'}
+                            </td>
+                            <td className="px-3 py-2 text-gray-600">{item.uom}</td>
+                            <td className="px-3 py-2 font-semibold text-green-700">{num(item.qty_on_hand)}</td>
+                            <td className="px-3 py-2 text-orange-600">{num(item.qty_issued)}</td>
+                            <td className="px-3 py-2 text-purple-600">{num(item.qty_returned)}</td>
+                            <td className="px-3 py-2 text-gray-500">{item.container_no || '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )
+              }
+            </div>
+          )}
+
+          {/* Requests Tab */}
+          {tab === 'requests' && (
+            <div>
+              {(!project.recent_requests || project.recent_requests.length === 0)
+                ? <p className="text-sm text-gray-400 italic">No material requests for this project.</p>
+                : (
+                  <div className="space-y-2">
+                    {project.recent_requests.map(r => (
+                      <div key={r.id} className="flex items-center justify-between bg-gray-50 rounded-lg px-4 py-3">
+                        <div>
+                          <p className="text-sm font-medium text-gray-800">{r.requester_name}
+                            <span className="text-xs text-gray-400 ml-1">({r.employee_id})</span>
+                          </p>
+                          <p className="text-xs text-gray-500">{r.item_count} item(s) · {fmt(r.created_at)}</p>
+                        </div>
+                        <Badge value={r.status} />
+                      </div>
+                    ))}
+                  </div>
+                )
+              }
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function ProjectManagement() {
   const [projects, setProjects] = useState([]);
   const [modal, setModal] = useState(false);
@@ -124,6 +358,7 @@ export default function ProjectManagement() {
   const [skModal, setSkModal] = useState(null);
   const [rqModal, setRqModal] = useState(null);
   const [error, setError] = useState('');
+  const [detail, setDetail] = useState(null);
 
   const load = () => api.get('/projects').then(r => setProjects(r.data));
   useEffect(() => { load(); }, []);
@@ -131,14 +366,42 @@ export default function ProjectManagement() {
   const openCreate = () => { setEditing(null); setForm(emptyForm); setModal(true); setError(''); };
   const openEdit = p => { setEditing(p.id); setForm(p); setModal(true); setError(''); };
 
+  const openDetail = async p => {
+    const { data } = await api.get(`/projects/${p.id}`);
+    setDetail(data);
+  };
+  const closeDetail = () => setDetail(null);
+  const refreshDetail = async () => {
+    if (detail) { const { data } = await api.get(`/projects/${detail.id}`); setDetail(data); }
+  };
+
   const save = async e => {
     e.preventDefault(); setError('');
     try {
       if (editing) await api.put(`/projects/${editing}`, form);
       else await api.post('/projects', form);
-      setModal(false); load();
+      setModal(false); load(); refreshDetail();
     } catch (err) { setError(err.response?.data?.error || 'Error saving project'); }
   };
+
+
+  const assignSk = async () => {
+    if (!selectedSk) return;
+    await api.post(`/projects/${skModal}/storekeepers`, { user_id: selectedSk });
+    setSkModal(null); load(); refreshDetail();
+  };
+
+  const assignRq = async () => {
+    if (!selectedRq) return;
+    await api.post(`/projects/${rqModal}/requesters`, { user_id: selectedRq });
+    setRqModal(null); load(); refreshDetail();
+  };
+
+  const removeSk = async (projectId, userId) => {
+    await api.delete(`/projects/${projectId}/storekeepers/${userId}`);
+    load(); refreshDetail();
+  };
+
 
   const archive = async id => {
     await api.put(`/projects/${id}`, { is_active: false }); load();
@@ -148,17 +411,17 @@ export default function ProjectManagement() {
     { key: 'project_number', header: 'Project No' },
     { key: 'name', header: 'Project Name' },
     { key: 'location', header: 'Location' },
-    { key: 'start_date', header: 'Start', render: v => v?.slice(0, 10) || '—' },
-    { key: 'end_date', header: 'End', render: v => v?.slice(0, 10) || '—' },
-    { key: 'is_active', header: 'Status', render: v => <Badge value={v ? 'active' : 'inactive'} label={v ? 'Active' : 'Archived'} /> },
+    { key: 'start_date', header: 'Start', render: v => fmt(v) },
+    { key: 'end_date',   header: 'End',   render: v => fmt(v) },
+    { key: 'is_active',  header: 'Status', render: v => <Badge value={v ? 'active' : 'inactive'} label={v ? 'Active' : 'Archived'} /> },
     {
       key: 'id', header: 'Actions',
       render: (id, row) => (
         <div className="flex gap-2">
-          <button onClick={() => openEdit(row)} className="text-xs text-blue-600 hover:underline">Edit</button>
-          <button onClick={() => setSkModal(id)} className="text-xs text-green-600 hover:underline">Assign SK</button>
-          <button onClick={() => setRqModal(id)} className="text-xs text-purple-600 hover:underline">Assign Requester</button>
-          {row.is_active && <button onClick={() => archive(id)} className="text-xs text-red-500 hover:underline">Archive</button>}
+          <button onClick={e => { e.stopPropagation(); openEdit(row); }} className="text-xs text-blue-600 hover:underline">Edit</button>
+          <button onClick={e => { e.stopPropagation(); setSkModal(id); setSelectedSk(''); }} className="text-xs text-green-600 hover:underline">Assign SK</button>
+          <button onClick={e => { e.stopPropagation(); setRqModal(id); setSelectedRq(''); }} className="text-xs text-purple-600 hover:underline">Assign Requester</button>
+          {row.is_active && <button onClick={e => { e.stopPropagation(); archive(id); }} className="text-xs text-red-500 hover:underline">Archive</button>}
         </div>
       )
     },
@@ -170,8 +433,25 @@ export default function ProjectManagement() {
         <h2 className="text-2xl font-bold text-gray-800">Project Management</h2>
         <button onClick={openCreate} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700">+ Add Project</button>
       </div>
-      <Table columns={cols} data={projects} />
+      <p className="text-xs text-gray-400 mb-3">Click any row to view full project details.</p>
 
+      <div className="[&_tr]:cursor-pointer">
+        <Table columns={cols} data={projects} onRowClick={openDetail} />
+      </div>
+
+      {/* Project Detail Drawer */}
+      {detail && (
+        <DetailDrawer
+          project={detail}
+          onClose={closeDetail}
+          onEdit={p => { closeDetail(); openEdit(p); }}
+          onAssignSk={id => { setSkModal(id); setSelectedSk(''); }}
+          onAssignRq={id => { setRqModal(id); setSelectedRq(''); }}
+          onRemoveSk={removeSk}
+        />
+      )}
+
+      {/* Edit / Create Modal */}
       <Modal isOpen={modal} onClose={() => setModal(false)} title={editing ? 'Edit Project' : 'New Project'}>
         <form onSubmit={save} className="space-y-3">
           {[['project_number','Project No',false],['name','Project Name',true],['location','Location',false]].map(([f,l,req]) => (
@@ -184,7 +464,7 @@ export default function ProjectManagement() {
           {[['start_date','Start Date'],['end_date','End Date']].map(([f,l]) => (
             <div key={f}>
               <label className="block text-sm font-medium text-gray-700 mb-1">{l}</label>
-              <input type="date" value={form[f] || ''} onChange={e => setForm(p => ({ ...p, [f]: e.target.value }))}
+              <input type="date" value={form[f]?.slice(0,10) || ''} onChange={e => setForm(p => ({ ...p, [f]: e.target.value }))}
                 className="w-full border rounded-lg px-3 py-2 text-sm" />
             </div>
           ))}
@@ -196,29 +476,35 @@ export default function ProjectManagement() {
         </form>
       </Modal>
 
-      <UserSearchModal
-        isOpen={!!skModal}
-        onClose={() => setSkModal(null)}
-        title="Assign Storekeeper"
-        accentColor="blue"
-        role="storekeeper"
-        onAssign={async userId => {
-          await api.post(`/projects/${skModal}/storekeepers`, { user_id: userId });
-          load();
-        }}
-      />
+      {/* Assign Storekeeper Modal */}
+      <Modal isOpen={!!skModal} onClose={() => setSkModal(null)} title="Assign Storekeeper">
+        <div className="space-y-3">
+          <select value={selectedSk} onChange={e => setSelectedSk(e.target.value)}
+            className="w-full border rounded-lg px-3 py-2 text-sm">
+            <option value="">Select storekeeper…</option>
+            {users.map(u => <option key={u.id} value={u.id}>{u.name} ({u.employee_id})</option>)}
+          </select>
+          <div className="flex gap-3">
+            <button onClick={assignSk} className="flex-1 bg-blue-600 text-white py-2 rounded-lg text-sm">Assign</button>
+            <button onClick={() => setSkModal(null)} className="flex-1 border py-2 rounded-lg text-sm">Cancel</button>
+          </div>
+        </div>
+      </Modal>
 
-      <UserSearchModal
-        isOpen={!!rqModal}
-        onClose={() => setRqModal(null)}
-        title="Assign Requester"
-        accentColor="purple"
-        role="requester"
-        onAssign={async userId => {
-          await api.post(`/projects/${rqModal}/requesters`, { user_id: userId });
-          load();
-        }}
-      />
+      {/* Assign Requester Modal */}
+      <Modal isOpen={!!rqModal} onClose={() => setRqModal(null)} title="Assign Requester">
+        <div className="space-y-3">
+          <select value={selectedRq} onChange={e => setSelectedRq(e.target.value)}
+            className="w-full border rounded-lg px-3 py-2 text-sm">
+            <option value="">Select requester…</option>
+            {requesters.map(u => <option key={u.id} value={u.id}>{u.name} ({u.employee_id})</option>)}
+          </select>
+          <div className="flex gap-3">
+            <button onClick={assignRq} className="flex-1 bg-purple-600 text-white py-2 rounded-lg text-sm">Assign</button>
+            <button onClick={() => setRqModal(null)} className="flex-1 border py-2 rounded-lg text-sm">Cancel</button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

@@ -3,6 +3,7 @@ const ctrl = require('../controllers/requests.controller');
 const auth = require('../middleware/auth');
 const role = require('../middleware/role');
 
+router.get('/escalation-stats', auth, role('coordinator', 'admin'), ctrl.escalationStats);
 router.get('/', auth, ctrl.list);
 router.post('/', auth, role('requester', 'admin', 'superuser'), ctrl.create);
 router.get('/:id', auth, ctrl.get);

@@ -5,8 +5,8 @@ const role = require('../middleware/role');
 const pdfSvc = require('../services/pdf.service');
 const db = require('../config/db');
 
-const wmsRoles = role('warehouse_manager', 'receiver', 'picker', 'admin');
-const wm = role('warehouse_manager', 'admin');
+const wmsRoles = role('warehouse_manager', 'receiver', 'picker', 'admin', 'superuser');
+const wm = role('warehouse_manager', 'admin', 'superuser');
 
 router.get('/zones',          auth, wmsRoles, ctrl.listZones);
 router.post('/zones',         auth, wm,       ctrl.createZone);

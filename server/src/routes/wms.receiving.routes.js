@@ -5,13 +5,13 @@ const c = require('../controllers/wms.receiving.controller');
 const pdfSvc = require('../services/pdf.service');
 const db = require('../config/db');
 
-const wmsRoles = role('warehouse_manager', 'receiver', 'admin');
+const wmsRoles = role('warehouse_manager', 'receiver', 'admin', 'superuser');
 
 // Purchase Orders
 router.get('/po',             auth, wmsRoles, c.listPOs);
-router.post('/po',            auth, role('warehouse_manager','admin'), c.createPO);
+router.post('/po',            auth, role('warehouse_manager','admin','superuser'), c.createPO);
 router.get('/po/:id',         auth, wmsRoles, c.getPO);
-router.patch('/po/:id/status',auth, role('warehouse_manager','admin'), c.updatePOStatus);
+router.patch('/po/:id/status',auth, role('warehouse_manager','admin','superuser'), c.updatePOStatus);
 
 // GRN
 router.get('/grn',            auth, wmsRoles, c.listGRNs);

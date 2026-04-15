@@ -56,6 +56,13 @@ export default function AdminDashboard() {
             <p className="text-xs text-gray-500 mb-1">Requests (7 days)</p>
             <p className="text-3xl font-bold text-gray-800">{kpis.requests_last_7_days}</p>
           </div>
+          <div className="bg-white border rounded-xl p-4">
+            <p className="text-xs text-gray-500 mb-1">Rejection Rate (this month)</p>
+            <p className={`text-3xl font-bold ${kpis.rejection_rate > 20 ? 'text-red-500' : kpis.rejection_rate > 10 ? 'text-orange-500' : 'text-gray-800'}`}>
+              {kpis.rejection_rate}%
+            </p>
+            <p className="text-xs text-gray-400 mt-0.5">{kpis.rejected_this_month} rejected</p>
+          </div>
         </div>
       )}
 

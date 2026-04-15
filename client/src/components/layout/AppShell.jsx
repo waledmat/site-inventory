@@ -16,6 +16,7 @@ const navByRole = {
     { path: '/requester/submit', label: '📝 New Request' },
     { path: '/requester/requests', label: '📋 My Requests' },
     { path: '/requester/stock', label: '🔍 Browse Stock' },
+    { path: '/requester/deliveries', label: '📦 My Deliveries' },
   ],
   coordinator: [
     { path: '/coordinator', label: '🏠 Dashboard' },

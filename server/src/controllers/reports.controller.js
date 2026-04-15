@@ -145,9 +145,11 @@ exports.summary = async (req, res, next) => {
 
 exports.dailyLog = async (req, res, next) => {
   try {
-    const { format, project_id } = req.query;
+    const { format, project_id, date_from, date_to } = req.query;
     let where = [], params = [];
     if (project_id) { params.push(project_id); where.push(`dr.project_id = $${params.length}`); }
+    if (date_from) { params.push(date_from); where.push(`dr.report_date >= $${params.length}`); }
+    if (date_to) { params.push(date_to); where.push(`dr.report_date <= $${params.length}`); }
     const wc = where.length ? 'WHERE ' + where.join(' AND ') : '';
 
     const { rows } = await db.query(
@@ -444,7 +446,7 @@ exports.projectDetail = async (req, res, next) => {
 
 exports.kpis = async (req, res, next) => {
   try {
-    const [pending, issuedMonth, lowStock, topItems, recentRequests] = await Promise.all([
+    const [pending, issuedMonth, lowStock, topItems, recentRequests, rejectionStats] = await Promise.all([
       db.query(`SELECT COUNT(*) FROM material_requests WHERE status = 'pending'`),
       db.query(`SELECT COALESCE(SUM(ii.quantity_issued), 0) as total
                 FROM issue_items ii
@@ -458,7 +460,16 @@ exports.kpis = async (req, res, next) => {
                 LIMIT 5`),
       db.query(`SELECT COUNT(*) FROM material_requests
                 WHERE created_at >= NOW() - INTERVAL '7 days'`),
+      db.query(`SELECT
+                  COUNT(*) FILTER (WHERE status = 'rejected') AS rejected,
+                  COUNT(*) AS total
+                FROM material_requests
+                WHERE date_trunc('month', created_at) = date_trunc('month', NOW())`),
     ]);
+
+    const rejected = parseInt(rejectionStats.rows[0].rejected);
+    const totalMonth = parseInt(rejectionStats.rows[0].total);
+    const rejection_rate = totalMonth > 0 ? Math.round((rejected / totalMonth) * 100) : 0;
 
     res.json({
       pending_requests: parseInt(pending.rows[0].count),
@@ -466,6 +477,8 @@ exports.kpis = async (req, res, next) => {
       low_stock_count: parseInt(lowStock.rows[0].count),
       top_items: topItems.rows,
       requests_last_7_days: parseInt(recentRequests.rows[0].count),
+      rejection_rate,
+      rejected_this_month: rejected,
     });
   } catch (err) { next(err); }
 };

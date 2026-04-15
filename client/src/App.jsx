@@ -19,6 +19,7 @@ import StockAdjustment from './pages/admin/StockAdjustment';
 import RequesterDashboard from './pages/requester/RequesterDashboard';
 import SubmitRequest from './pages/requester/SubmitRequest';
 import MyRequests from './pages/requester/MyRequests';
+import MyDeliveries from './pages/requester/MyDeliveries';
 import StockBrowse from './pages/requester/StockBrowse';
 
 // Coordinator
@@ -55,10 +56,20 @@ import Reports from './pages/superuser/Reports';
 import DailyReportLog from './pages/superuser/DailyReportLog';
 import SuperuserProjects from './pages/admin/ProjectManagement';
 
+const SITE_HOME = {
+  admin: '/admin',
+  superuser: '/superuser',
+  storekeeper: '/storekeeper',
+  requester: '/requester',
+  coordinator: '/coordinator',
+};
+
 function RoleRedirect() {
   const { user } = useAuth();
   if (!user) return <Navigate to="/login" replace />;
-  // All roles go to module selector first
+  const home = SITE_HOME[user.role];
+  if (home) return <Navigate to={home} replace />;
+  // WMS-only roles fallback to module selector
   return <Navigate to="/modules" replace />;
 }
 
@@ -89,6 +100,7 @@ export default function App() {
           <Route path="/requester/submit" element={<ProtectedRoute roles={['requester']}><Shell><SubmitRequest /></Shell></ProtectedRoute>} />
           <Route path="/requester/requests" element={<ProtectedRoute roles={['requester']}><Shell><MyRequests /></Shell></ProtectedRoute>} />
           <Route path="/requester/stock" element={<ProtectedRoute roles={['requester']}><Shell><StockBrowse /></Shell></ProtectedRoute>} />
+          <Route path="/requester/deliveries" element={<ProtectedRoute roles={['requester']}><Shell><MyDeliveries /></Shell></ProtectedRoute>} />
 
           {/* Coordinator */}
           <Route path="/coordinator" element={<ProtectedRoute roles={['coordinator']}><Shell><CoordinatorDashboard /></Shell></ProtectedRoute>} />
@@ -111,17 +123,17 @@ export default function App() {
           <Route path="/superuser/audit-log" element={<ProtectedRoute roles={['superuser']}><Shell><AuditLog /></Shell></ProtectedRoute>} />
 
           {/* Warehouse Manager */}
-          <Route path="/wm" element={<ProtectedRoute roles={['warehouse_manager', 'receiver', 'picker']}><Shell><WMDashboard /></Shell></ProtectedRoute>} />
-          <Route path="/wm/suppliers" element={<ProtectedRoute roles={['warehouse_manager']}><Shell><SupplierManagement /></Shell></ProtectedRoute>} />
-          <Route path="/wm/items" element={<ProtectedRoute roles={['warehouse_manager', 'receiver', 'picker']}><Shell><ItemMaster /></Shell></ProtectedRoute>} />
-          <Route path="/wm/locations" element={<ProtectedRoute roles={['warehouse_manager', 'receiver', 'picker']}><Shell><LocationManagement /></Shell></ProtectedRoute>} />
-          <Route path="/wm/po" element={<ProtectedRoute roles={['warehouse_manager']}><Shell><PurchaseOrders /></Shell></ProtectedRoute>} />
-          <Route path="/wm/grn" element={<ProtectedRoute roles={['warehouse_manager', 'receiver']}><Shell><ReceiveGRN /></Shell></ProtectedRoute>} />
-          <Route path="/wm/putaway" element={<ProtectedRoute roles={['warehouse_manager', 'receiver', 'picker']}><Shell><PutawayTasks /></Shell></ProtectedRoute>} />
-          <Route path="/wm/inventory" element={<ProtectedRoute roles={['warehouse_manager', 'receiver', 'picker']}><Shell><WarehouseInventory /></Shell></ProtectedRoute>} />
-          <Route path="/wm/dispatch" element={<ProtectedRoute roles={['warehouse_manager', 'picker']}><Shell><DispatchOrders /></Shell></ProtectedRoute>} />
-          <Route path="/wm/cyclecount" element={<ProtectedRoute roles={['warehouse_manager', 'receiver', 'picker']}><Shell><CycleCounting /></Shell></ProtectedRoute>} />
-          <Route path="/wm/reports" element={<ProtectedRoute roles={['warehouse_manager', 'receiver', 'picker']}><Shell><WMReports /></Shell></ProtectedRoute>} />
+          <Route path="/wm" element={<ProtectedRoute roles={['warehouse_manager', 'receiver', 'picker', 'admin', 'superuser']}><Shell><WMDashboard /></Shell></ProtectedRoute>} />
+          <Route path="/wm/suppliers" element={<ProtectedRoute roles={['warehouse_manager', 'admin', 'superuser']}><Shell><SupplierManagement /></Shell></ProtectedRoute>} />
+          <Route path="/wm/items" element={<ProtectedRoute roles={['warehouse_manager', 'receiver', 'picker', 'admin', 'superuser']}><Shell><ItemMaster /></Shell></ProtectedRoute>} />
+          <Route path="/wm/locations" element={<ProtectedRoute roles={['warehouse_manager', 'receiver', 'picker', 'admin', 'superuser']}><Shell><LocationManagement /></Shell></ProtectedRoute>} />
+          <Route path="/wm/po" element={<ProtectedRoute roles={['warehouse_manager', 'admin', 'superuser']}><Shell><PurchaseOrders /></Shell></ProtectedRoute>} />
+          <Route path="/wm/grn" element={<ProtectedRoute roles={['warehouse_manager', 'receiver', 'admin', 'superuser']}><Shell><ReceiveGRN /></Shell></ProtectedRoute>} />
+          <Route path="/wm/putaway" element={<ProtectedRoute roles={['warehouse_manager', 'receiver', 'picker', 'admin', 'superuser']}><Shell><PutawayTasks /></Shell></ProtectedRoute>} />
+          <Route path="/wm/inventory" element={<ProtectedRoute roles={['warehouse_manager', 'receiver', 'picker', 'admin', 'superuser']}><Shell><WarehouseInventory /></Shell></ProtectedRoute>} />
+          <Route path="/wm/dispatch" element={<ProtectedRoute roles={['warehouse_manager', 'picker', 'admin', 'superuser']}><Shell><DispatchOrders /></Shell></ProtectedRoute>} />
+          <Route path="/wm/cyclecount" element={<ProtectedRoute roles={['warehouse_manager', 'receiver', 'picker', 'admin', 'superuser']}><Shell><CycleCounting /></Shell></ProtectedRoute>} />
+          <Route path="/wm/reports" element={<ProtectedRoute roles={['warehouse_manager', 'receiver', 'picker', 'admin', 'superuser']}><Shell><WMReports /></Shell></ProtectedRoute>} />
 
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

@@ -5,8 +5,8 @@ const ctrl = require('../controllers/wms.cyclecount.controller');
 const pdfSvc = require('../services/pdf.service');
 const db = require('../config/db');
 
-const wm = role('warehouse_manager', 'admin');
-const wmAll = role('warehouse_manager', 'receiver', 'picker', 'admin');
+const wm = role('warehouse_manager', 'admin', 'superuser');
+const wmAll = role('warehouse_manager', 'receiver', 'picker', 'admin', 'superuser');
 
 router.use(auth);
 

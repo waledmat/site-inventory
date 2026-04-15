@@ -11,12 +11,16 @@ exports.list = async (req, res, next) => {
   try {
     const { project_id, date_from, date_to, dn_number } = req.query;
     let where = [], params = [];
+    let joinRequester = '';
 
     if (req.user.role === 'storekeeper') {
       const sk = await db.query('SELECT project_id FROM project_storekeepers WHERE user_id = $1', [req.user.id]);
       const ids = sk.rows.map(x => x.project_id);
       if (!ids.length) return res.json([]);
       params.push(ids); where.push(`i.project_id = ANY($${params.length})`);
+    } else if (req.user.role === 'requester') {
+      joinRequester = 'LEFT JOIN material_requests mr ON mr.id = i.request_id';
+      params.push(req.user.id); where.push(`mr.requester_id = $${params.length}`);
     }
     if (project_id) { params.push(project_id); where.push(`i.project_id = $${params.length}`); }
     if (date_from) { params.push(date_from); where.push(`i.issue_date >= $${params.length}`); }
@@ -27,11 +31,16 @@ exports.list = async (req, res, next) => {
     const { rows } = await db.query(
       `SELECT i.*, p.name as project_name,
               sk.name as storekeeper_name, rc.name as receiver_name,
-              (SELECT COUNT(*) FROM issue_items ii WHERE ii.issue_id = i.id) as item_count
+              (SELECT COUNT(*) FROM issue_items ii WHERE ii.issue_id = i.id) as item_count,
+              (SELECT COALESCE(SUM(ii2.quantity_issued),0) FROM issue_items ii2 WHERE ii2.issue_id = i.id) as total_issued,
+              (SELECT COALESCE(SUM(mr.quantity_returned),0) FROM issue_items ii3
+               JOIN material_returns mr ON mr.issue_item_id = ii3.id
+               WHERE ii3.issue_id = i.id AND mr.condition != 'lost') as total_returned
        FROM material_issues i
        JOIN projects p ON p.id = i.project_id
        JOIN users sk ON sk.id = i.storekeeper_id
        LEFT JOIN users rc ON rc.id = i.receiver_id
+       ${joinRequester}
        ${whereClause} ORDER BY i.created_at DESC`,
       params
     );

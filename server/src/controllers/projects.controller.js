@@ -38,13 +38,52 @@ exports.get = async (req, res, next) => {
   try {
     const { rows } = await db.query('SELECT * FROM projects WHERE id = $1', [req.params.id]);
     if (!rows[0]) return res.status(404).json({ error: 'Project not found' });
+    const id = req.params.id;
 
-    const sk = await db.query(
-      `SELECT u.id, u.name, u.email FROM users u
-       JOIN project_storekeepers ps ON ps.user_id = u.id
-       WHERE ps.project_id = $1`, [req.params.id]
-    );
-    res.json({ ...rows[0], storekeepers: sk.rows });
+    const [sk, rq, stockSummary, stockItems, requests] = await Promise.all([
+      db.query(
+        `SELECT u.id, u.name, u.employee_id, u.position FROM users u
+         JOIN project_storekeepers ps ON ps.user_id = u.id
+         WHERE ps.project_id = $1`, [id]
+      ),
+      db.query(
+        `SELECT u.id, u.name, u.employee_id, u.position FROM users u
+         JOIN project_requesters pr ON pr.user_id = u.id
+         WHERE pr.project_id = $1`, [id]
+      ),
+      db.query(
+        `SELECT COUNT(*) AS total_items,
+                COALESCE(SUM(qty_on_hand),0) AS total_on_hand,
+                COALESCE(SUM(qty_issued),0) AS total_issued,
+                COALESCE(SUM(qty_returned),0) AS total_returned
+         FROM stock_items WHERE project_id = $1`, [id]
+      ),
+      db.query(
+        `SELECT item_number, description_1, uom, category,
+                qty_on_hand, qty_issued, qty_returned, qty_pending_return, container_no
+         FROM stock_items WHERE project_id = $1 ORDER BY item_number`, [id]
+      ),
+      db.query(
+        `SELECT mr.id, mr.status, mr.created_at,
+                u.name AS requester_name, u.employee_id,
+                COUNT(ri.id) AS item_count
+         FROM material_requests mr
+         JOIN users u ON u.id = mr.requester_id
+         LEFT JOIN request_items ri ON ri.request_id = mr.id
+         WHERE mr.project_id = $1
+         GROUP BY mr.id, u.name, u.employee_id
+         ORDER BY mr.created_at DESC LIMIT 20`, [id]
+      ),
+    ]);
+
+    res.json({
+      ...rows[0],
+      storekeepers: sk.rows,
+      requesters: rq.rows,
+      stock_summary: stockSummary.rows[0],
+      stock_items: stockItems.rows,
+      recent_requests: requests.rows,
+    });
   } catch (err) { next(err); }
 };
 

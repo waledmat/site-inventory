@@ -2,6 +2,51 @@ import { useEffect, useState, useCallback } from 'react';
 import { useDropzone } from 'react-dropzone';
 import api from '../../utils/axiosInstance';
 
+function UploadHistory() {
+  const [history, setHistory] = useState([]);
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (open) api.get('/upload/packing-list/history').then(r => setHistory(r.data)).catch(() => {});
+  }, [open]);
+
+  return (
+    <div className="mt-6">
+      <button onClick={() => setOpen(o => !o)} className="text-sm text-blue-600 hover:underline">
+        {open ? '▲ Hide' : '▼ Show'} Upload History
+      </button>
+      {open && (
+        <div className="mt-3 bg-white rounded-xl border overflow-hidden">
+          {history.length === 0 ? (
+            <p className="text-sm text-gray-400 p-4 text-center">No uploads yet.</p>
+          ) : (
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 border-b">
+                <tr>
+                  {['Date', 'Uploaded By', 'Project', 'Rows', 'Errors'].map(h => (
+                    <th key={h} className="px-4 py-2 text-left text-xs font-semibold text-gray-500">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {history.map(h => (
+                  <tr key={h.id} className="border-t hover:bg-gray-50">
+                    <td className="px-4 py-2 text-xs text-gray-600">{new Date(h.created_at).toLocaleString()}</td>
+                    <td className="px-4 py-2">{h.uploaded_by || '—'}</td>
+                    <td className="px-4 py-2">{h.project_name || '—'}</td>
+                    <td className="px-4 py-2 font-semibold text-green-700">{h.row_count}</td>
+                    <td className="px-4 py-2 font-semibold text-red-600">{h.error_count}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 const downloadTemplate = () => {
   const token = localStorage.getItem('token');
   const base = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api';
@@ -43,7 +88,7 @@ export default function UploadPackingList() {
   const confirm = async () => {
     setConfirming(true);
     try {
-      await api.post('/upload/packing-list/confirm', { valid_rows: result.valid });
+      await api.post('/upload/packing-list/confirm', { valid_rows: result.valid, error_count: result.errors.length });
       setDone(`✅ ${result.valid.length} rows imported successfully!`);
       setResult(null); setFile(null);
     } finally { setConfirming(false); }
@@ -159,6 +204,8 @@ export default function UploadPackingList() {
           )}
         </div>
       )}
+
+      <UploadHistory />
     </div>
   );
 }

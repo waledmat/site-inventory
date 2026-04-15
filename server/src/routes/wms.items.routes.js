@@ -6,7 +6,7 @@ const pdfSvc = require('../services/pdf.service');
 const db = require('../config/db');
 
 const wmsRoles = role('warehouse_manager', 'receiver', 'picker', 'admin', 'superuser');
-const wm = role('warehouse_manager', 'admin');
+const wm = role('warehouse_manager', 'admin', 'superuser');
 
 router.get('/',                      auth, wmsRoles, ctrl.list);
 router.post('/',                     auth, wm,       ctrl.create);

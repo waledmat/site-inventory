@@ -3,7 +3,7 @@ const { nextRef } = require('../utils/sequences');
 
 exports.list = async (req, res, next) => {
   try {
-    const { status, project_id } = req.query;
+    const { status, project_id, date_from, date_to, page = 1, limit = 50 } = req.query;
     let where = [], params = [];
 
     if (req.user.role === 'requester') {
@@ -11,7 +11,7 @@ exports.list = async (req, res, next) => {
     } else if (req.user.role === 'storekeeper') {
       const sk = await db.query('SELECT project_id FROM project_storekeepers WHERE user_id = $1', [req.user.id]);
       const ids = sk.rows.map(x => x.project_id);
-      if (!ids.length) return res.json([]);
+      if (!ids.length) return res.json({ data: [], total: 0 });
       params.push(ids); where.push(`r.project_id = ANY($${params.length})`);
     } else if (req.user.role === 'coordinator') {
       where.push(`r.status IN ('escalated')`);
@@ -19,19 +19,36 @@ exports.list = async (req, res, next) => {
 
     if (status) { params.push(status); where.push(`r.status = $${params.length}`); }
     if (project_id) { params.push(project_id); where.push(`r.project_id = $${params.length}`); }
+    if (date_from) { params.push(date_from); where.push(`r.created_at >= $${params.length}`); }
+    if (date_to) { params.push(date_to); where.push(`r.created_at < ($${params.length + 1}::date + interval '1 day')`); params.push(date_to); }
 
     const whereClause = where.length ? 'WHERE ' + where.join(' AND ') : '';
-    const { rows } = await db.query(
-      `SELECT r.*, r.request_number, p.name as project_name,
-              u.name as requester_name, u.position as requester_position,
-              (SELECT COUNT(*) FROM request_items ri WHERE ri.request_id = r.id) as item_count
-       FROM material_requests r
-       JOIN projects p ON p.id = r.project_id
-       JOIN users u ON u.id = r.requester_id
-       ${whereClause} ORDER BY r.created_at DESC`,
-      params
-    );
-    res.json(rows);
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+
+    const [dataRes, countRes] = await Promise.all([
+      db.query(
+        `SELECT r.*, p.name as project_name,
+                u.name as requester_name, u.position as requester_position,
+                (SELECT COUNT(*) FROM request_items ri WHERE ri.request_id = r.id) as item_count
+         FROM material_requests r
+         JOIN projects p ON p.id = r.project_id
+         JOIN users u ON u.id = r.requester_id
+         ${whereClause} ORDER BY r.created_at DESC
+         LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+        [...params, parseInt(limit), offset]
+      ),
+      db.query(
+        `SELECT COUNT(*) FROM material_requests r
+         JOIN projects p ON p.id = r.project_id
+         JOIN users u ON u.id = r.requester_id
+         ${whereClause}`,
+        params
+      ),
+    ]);
+
+    // Backward compat: if no pagination params sent, return plain array
+    if (!req.query.page) return res.json(dataRes.rows);
+    res.json({ data: dataRes.rows, total: parseInt(countRes.rows[0].count) });
   } catch (err) { next(err); }
 };
 
@@ -111,14 +128,21 @@ exports.get = async (req, res, next) => {
        WHERE r.id = $1`, [req.params.id]
     );
     if (!rows[0]) return res.status(404).json({ error: 'Request not found' });
-    const items = await db.query(
-      `SELECT ri.*, s.qty_on_hand
-       FROM request_items ri
-       LEFT JOIN stock_items s ON s.id = ri.stock_item_id
-       WHERE ri.request_id = $1`,
-      [req.params.id]
-    );
-    res.json({ ...rows[0], items: items.rows });
+    const [items, escalation] = await Promise.all([
+      db.query(
+        `SELECT ri.*, s.qty_on_hand
+         FROM request_items ri
+         LEFT JOIN stock_items s ON s.id = ri.stock_item_id
+         WHERE ri.request_id = $1`,
+        [req.params.id]
+      ),
+      db.query(
+        `SELECT notes as escalation_notes, resolution, status as escalation_status, created_at as escalated_at
+         FROM escalations WHERE request_id = $1 ORDER BY created_at DESC LIMIT 1`,
+        [req.params.id]
+      ),
+    ]);
+    res.json({ ...rows[0], items: items.rows, escalation: escalation.rows[0] || null });
   } catch (err) { next(err); }
 };
 
@@ -152,6 +176,20 @@ exports.escalate = async (req, res, next) => {
       [req.params.id, req.user.id, coord.rows[0]?.id || null, notes || null]
     );
     res.json(rrows[0]);
+  } catch (err) { next(err); }
+};
+
+exports.escalationStats = async (req, res, next) => {
+  try {
+    const { rows } = await db.query(`
+      SELECT
+        COUNT(*) FILTER (WHERE e.status = 'open') AS pending,
+        COUNT(*) FILTER (WHERE e.status = 'resolved') AS resolved_total,
+        COUNT(*) FILTER (WHERE e.status = 'resolved' AND e.resolved_at >= NOW() - INTERVAL '7 days') AS resolved_this_week,
+        ROUND(AVG(EXTRACT(EPOCH FROM (e.resolved_at - e.created_at))/3600) FILTER (WHERE e.status = 'resolved'), 1) AS avg_resolution_hours
+      FROM escalations e
+    `);
+    res.json(rows[0]);
   } catch (err) { next(err); }
 };
 

@@ -7,8 +7,8 @@ const db = require('../config/db');
 const path = require('path');
 const fs = require('fs');
 
-const wm = role('warehouse_manager', 'admin');
-const wmPicker = role('warehouse_manager', 'picker', 'admin');
+const wm = role('warehouse_manager', 'admin', 'superuser');
+const wmPicker = role('warehouse_manager', 'picker', 'admin', 'superuser');
 
 router.use(auth);
 

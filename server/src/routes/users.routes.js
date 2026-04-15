@@ -27,5 +27,7 @@ router.post('/', auth, role('admin'), ctrl.create);
 router.get('/:id', auth, role('admin'), ctrl.get);
 router.put('/:id', auth, role('admin'), ctrl.update);
 router.post('/:id/authorize', auth, role('admin'), ctrl.authorize);
+router.get('/:id/permissions', auth, role('admin'), ctrl.getPermissions);
+router.put('/:id/permissions', auth, role('admin'), ctrl.setPermissions);
 
 module.exports = router;
