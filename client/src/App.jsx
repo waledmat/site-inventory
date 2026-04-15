@@ -29,7 +29,6 @@ import CoordinatorDashboard from './pages/coordinator/CoordinatorDashboard';
 import StorekeeperDashboard from './pages/storekeeper/StorekeeperDashboard';
 import IncomingRequests from './pages/storekeeper/IncomingRequests';
 import IssueMaterial from './pages/storekeeper/IssueMaterial';
-import DirectIssue from './pages/storekeeper/DirectIssue';
 import PendingReturns from './pages/storekeeper/PendingReturns';
 import StockSearch from './pages/storekeeper/StockSearch';
 import DeliveryNotes from './pages/storekeeper/DeliveryNotes';
@@ -98,7 +97,6 @@ export default function App() {
           <Route path="/storekeeper" element={<ProtectedRoute roles={['storekeeper']}><Shell><StorekeeperDashboard /></Shell></ProtectedRoute>} />
           <Route path="/storekeeper/incoming" element={<ProtectedRoute roles={['storekeeper']}><Shell><IncomingRequests /></Shell></ProtectedRoute>} />
           <Route path="/storekeeper/issue/:requestId" element={<ProtectedRoute roles={['storekeeper']}><Shell><IssueMaterial /></Shell></ProtectedRoute>} />
-          <Route path="/storekeeper/direct-issue" element={<ProtectedRoute roles={['storekeeper']}><Shell><DirectIssue /></Shell></ProtectedRoute>} />
           <Route path="/storekeeper/returns" element={<ProtectedRoute roles={['storekeeper']}><Shell><PendingReturns /></Shell></ProtectedRoute>} />
           <Route path="/storekeeper/delivery-notes" element={<ProtectedRoute roles={['storekeeper']}><Shell><DeliveryNotes /></Shell></ProtectedRoute>} />
           <Route path="/storekeeper/stock" element={<ProtectedRoute roles={['storekeeper']}><Shell><StockSearch /></Shell></ProtectedRoute>} />

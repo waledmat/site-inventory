@@ -385,15 +385,13 @@ export default function ProjectManagement() {
   };
 
 
-  const assignSk = async () => {
-    if (!selectedSk) return;
-    await api.post(`/projects/${skModal}/storekeepers`, { user_id: selectedSk });
+  const assignSk = async (userId) => {
+    await api.post(`/projects/${skModal}/storekeepers`, { user_id: userId });
     setSkModal(null); load(); refreshDetail();
   };
 
-  const assignRq = async () => {
-    if (!selectedRq) return;
-    await api.post(`/projects/${rqModal}/requesters`, { user_id: selectedRq });
+  const assignRq = async (userId) => {
+    await api.post(`/projects/${rqModal}/requesters`, { user_id: userId });
     setRqModal(null); load(); refreshDetail();
   };
 
@@ -419,8 +417,8 @@ export default function ProjectManagement() {
       render: (id, row) => (
         <div className="flex gap-2">
           <button onClick={e => { e.stopPropagation(); openEdit(row); }} className="text-xs text-blue-600 hover:underline">Edit</button>
-          <button onClick={e => { e.stopPropagation(); setSkModal(id); setSelectedSk(''); }} className="text-xs text-green-600 hover:underline">Assign SK</button>
-          <button onClick={e => { e.stopPropagation(); setRqModal(id); setSelectedRq(''); }} className="text-xs text-purple-600 hover:underline">Assign Requester</button>
+          <button onClick={e => { e.stopPropagation(); setSkModal(id); }} className="text-xs text-green-600 hover:underline">Assign SK</button>
+          <button onClick={e => { e.stopPropagation(); setRqModal(id); }} className="text-xs text-purple-600 hover:underline">Assign Requester</button>
           {row.is_active && <button onClick={e => { e.stopPropagation(); archive(id); }} className="text-xs text-red-500 hover:underline">Archive</button>}
         </div>
       )
@@ -445,8 +443,8 @@ export default function ProjectManagement() {
           project={detail}
           onClose={closeDetail}
           onEdit={p => { closeDetail(); openEdit(p); }}
-          onAssignSk={id => { setSkModal(id); setSelectedSk(''); }}
-          onAssignRq={id => { setRqModal(id); setSelectedRq(''); }}
+          onAssignSk={id => setSkModal(id)}
+          onAssignRq={id => setRqModal(id)}
           onRemoveSk={removeSk}
         />
       )}
@@ -477,34 +475,24 @@ export default function ProjectManagement() {
       </Modal>
 
       {/* Assign Storekeeper Modal */}
-      <Modal isOpen={!!skModal} onClose={() => setSkModal(null)} title="Assign Storekeeper">
-        <div className="space-y-3">
-          <select value={selectedSk} onChange={e => setSelectedSk(e.target.value)}
-            className="w-full border rounded-lg px-3 py-2 text-sm">
-            <option value="">Select storekeeper…</option>
-            {users.map(u => <option key={u.id} value={u.id}>{u.name} ({u.employee_id})</option>)}
-          </select>
-          <div className="flex gap-3">
-            <button onClick={assignSk} className="flex-1 bg-blue-600 text-white py-2 rounded-lg text-sm">Assign</button>
-            <button onClick={() => setSkModal(null)} className="flex-1 border py-2 rounded-lg text-sm">Cancel</button>
-          </div>
-        </div>
-      </Modal>
+      <UserSearchModal
+        isOpen={!!skModal}
+        onClose={() => setSkModal(null)}
+        title="Assign Storekeeper"
+        accentColor="blue"
+        role="storekeeper"
+        onAssign={assignSk}
+      />
 
       {/* Assign Requester Modal */}
-      <Modal isOpen={!!rqModal} onClose={() => setRqModal(null)} title="Assign Requester">
-        <div className="space-y-3">
-          <select value={selectedRq} onChange={e => setSelectedRq(e.target.value)}
-            className="w-full border rounded-lg px-3 py-2 text-sm">
-            <option value="">Select requester…</option>
-            {requesters.map(u => <option key={u.id} value={u.id}>{u.name} ({u.employee_id})</option>)}
-          </select>
-          <div className="flex gap-3">
-            <button onClick={assignRq} className="flex-1 bg-purple-600 text-white py-2 rounded-lg text-sm">Assign</button>
-            <button onClick={() => setRqModal(null)} className="flex-1 border py-2 rounded-lg text-sm">Cancel</button>
-          </div>
-        </div>
-      </Modal>
+      <UserSearchModal
+        isOpen={!!rqModal}
+        onClose={() => setRqModal(null)}
+        title="Assign Requester"
+        accentColor="purple"
+        role="requester"
+        onAssign={assignRq}
+      />
     </div>
   );
 }

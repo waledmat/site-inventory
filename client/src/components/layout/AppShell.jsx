@@ -36,6 +36,7 @@ const navByRole = {
     { path: '/superuser/reports', label: '📊 Reports' },
     { path: '/superuser/daily-log', label: '📅 Daily Log' },
     { path: '/superuser/audit-log', label: '📋 Audit Log' },
+    { path: '/superuser/item-labels', label: '🏷️ Item Labels' },
   ],
   warehouse_manager: [
     { path: '/wm', label: '🏠 Dashboard' },

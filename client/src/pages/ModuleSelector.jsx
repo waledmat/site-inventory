@@ -92,20 +92,7 @@ export default function ModuleSelector() {
             <p className="text-blue-300">Choose the system you want to work in</p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <ModuleCard
-              to={ROLE_WMS_HOME[user.role] || '/wm'}
-              allowed={canWMS}
-              icon="🏭"
-              title="Warehouse Management"
-              description="Manage central warehouse operations — suppliers, purchase orders, goods receipt, bin-level storage, putaway, and stock control."
-              tags={['Suppliers', 'Purchase Orders', 'GRN', 'Putaway', 'Inventory', 'Dispatch']}
-              tagClass="bg-blue-500/30 text-blue-200"
-              cta="Enter WMS →"
-              ctaClass="text-blue-300 group-hover:text-white"
-              borderHover="hover:border-blue-400"
-            />
-
+          <div className="grid grid-cols-1 gap-6 max-w-lg mx-auto w-full">
             <ModuleCard
               to={ROLE_SITE_HOME[user.role] || '/requester'}
               allowed={canSite}
