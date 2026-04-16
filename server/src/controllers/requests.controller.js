@@ -146,6 +146,60 @@ exports.get = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+exports.update = async (req, res, next) => {
+  const client = await db.connect();
+  try {
+    const { items, notes } = req.body;
+    if (!items?.length) return res.status(400).json({ error: 'items required' });
+
+    // Only requester who owns it can edit, and only when pending
+    const { rows } = await db.query(
+      `SELECT * FROM material_requests WHERE id = $1 AND requester_id = $2 AND status = 'pending'`,
+      [req.params.id, req.user.id]
+    );
+    if (!rows[0]) return res.status(403).json({ error: 'Request not found or cannot be edited' });
+
+    await client.query('BEGIN');
+    await client.query(`UPDATE material_requests SET notes = $1, updated_at = NOW() WHERE id = $2`, [notes || null, req.params.id]);
+    await client.query(`DELETE FROM request_items WHERE request_id = $1`, [req.params.id]);
+
+    for (const item of items) {
+      let desc1 = item.description_1 || null;
+      let desc2 = item.description_2 || null;
+      let uom   = item.uom || null;
+      let itemNo = item.item_number || null;
+
+      if (item.stock_item_id) {
+        const { rows: si } = await client.query(
+          'SELECT description_1, description_2, uom, item_number FROM stock_items WHERE id = $1',
+          [item.stock_item_id]
+        );
+        if (si[0]) { desc1 = si[0].description_1; desc2 = si[0].description_2 || null; uom = si[0].uom; itemNo = si[0].item_number || null; }
+      }
+
+      await client.query(
+        `INSERT INTO request_items (request_id, stock_item_id, item_number, description_1, description_2, uom, quantity_requested)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+        [req.params.id, item.stock_item_id || null, itemNo, desc1, desc2, uom, item.quantity_requested]
+      );
+    }
+    await client.query('COMMIT');
+    res.json({ message: 'Request updated' });
+  } catch (err) { await client.query('ROLLBACK'); next(err); }
+  finally { client.release(); }
+};
+
+exports.delete = async (req, res, next) => {
+  try {
+    const { rows } = await db.query(
+      `DELETE FROM material_requests WHERE id = $1 AND requester_id = $2 AND status = 'pending' RETURNING id`,
+      [req.params.id, req.user.id]
+    );
+    if (!rows[0]) return res.status(403).json({ error: 'Request not found or cannot be deleted' });
+    res.json({ message: 'Request deleted' });
+  } catch (err) { next(err); }
+};
+
 exports.reject = async (req, res, next) => {
   try {
     const { rejection_reason } = req.body;

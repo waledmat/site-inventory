@@ -16,6 +16,7 @@ export default function StockBrowse() {
   const [projectId, setProjectId] = useState('');
   const [category, setCategory] = useState('');
   const [q, setQ] = useState('');
+  const [stockStatus, setStockStatus] = useState('');
 
   // Results
   const [rows, setRows] = useState([]);
@@ -145,6 +146,15 @@ export default function StockBrowse() {
     setSubmitting(false);
   };
 
+  const filteredRows = rows.filter(item => {
+    const qty = parseFloat(item.qty_on_hand);
+    const lowThreshold = parseFloat(item.reorder_point) || 5;
+    if (stockStatus === 'out') return qty <= 0;
+    if (stockStatus === 'low') return qty > 0 && qty <= lowThreshold;
+    if (stockStatus === 'available') return qty > lowThreshold;
+    return true;
+  });
+
   const totalPages = Math.ceil(total / limit);
   const selectedProject = projects.find(p => p.id === projectId);
 
@@ -156,7 +166,7 @@ export default function StockBrowse() {
       </div>
 
       {/* Filters */}
-      <div className="bg-white border rounded-xl p-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <div className="bg-white border rounded-xl p-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <div>
           <label className="block text-xs font-medium text-gray-600 mb-1">Project</label>
           <select
@@ -186,6 +196,19 @@ export default function StockBrowse() {
           </select>
         </div>
         <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Stock Status</label>
+          <select
+            value={stockStatus}
+            onChange={e => { setStockStatus(e.target.value); setPage(1); }}
+            className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="">All Status</option>
+            <option value="available">✅ Available</option>
+            <option value="low">⚠️ Low Stock</option>
+            <option value="out">❌ Out of Stock</option>
+          </select>
+        </div>
+        <div>
           <label className="block text-xs font-medium text-gray-600 mb-1">Search</label>
           <input
             type="text"
@@ -208,7 +231,7 @@ export default function StockBrowse() {
       {projectId && (
         <>
           <div className="flex items-center justify-between text-sm text-gray-500">
-            <span>{loading ? 'Loading…' : `${total} item${total !== 1 ? 's' : ''} in ${selectedProject?.name || ''}`}</span>
+            <span>{loading ? 'Loading…' : `${stockStatus ? filteredRows.length : total} item${(stockStatus ? filteredRows.length : total) !== 1 ? 's' : ''} in ${selectedProject?.name || ''}`}</span>
             {total > 0 && !loading && <span>Page {page} of {totalPages}</span>}
           </div>
 
@@ -229,10 +252,10 @@ export default function StockBrowse() {
                 {loading && (
                   <tr><td colSpan={6} className="text-center py-10 text-gray-400">Loading…</td></tr>
                 )}
-                {!loading && rows.length === 0 && (
+                {!loading && filteredRows.length === 0 && (
                   <tr><td colSpan={6} className="text-center py-10 text-gray-400">No items found</td></tr>
                 )}
-                {rows.map(item => {
+                {filteredRows.map(item => {
                   const inCart = !!cartMap[item.id];
                   const isActive = activeRowId === item.id;
                   const outOfStock = parseFloat(item.qty_on_hand) <= 0;

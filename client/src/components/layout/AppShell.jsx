@@ -116,9 +116,6 @@ export default function AppShell({ children }) {
         <div className="p-4 border-t">
           <p className="text-xs font-medium text-gray-700 truncate">{user?.name}</p>
           <p className="text-xs text-gray-400 capitalize mb-3">{user?.role?.replace('_',' ')}</p>
-          <Link to="/modules" className="w-full text-xs text-blue-500 hover:text-blue-700 text-left py-1 block mb-1">
-            ⬡ Module Selector
-          </Link>
           <button onClick={handleLogout} className="w-full text-xs text-red-500 hover:text-red-700 text-left py-1">
             Sign out →
           </button>
