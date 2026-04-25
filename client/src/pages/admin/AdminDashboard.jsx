@@ -2,7 +2,17 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../../utils/axiosInstance';
 import StatCard from '../../components/common/StatCard';
+import CostSummaryPanel from '../../components/common/CostSummaryPanel';
+import ListModal from '../../components/common/ListModal';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+
+const startOfMonth = () => {
+  const d = new Date(); d.setDate(1);
+  return d.toISOString().slice(0, 10);
+};
+const today = () => new Date().toISOString().slice(0, 10);
+const sevenDaysAgo = () => new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+const num = (n) => Number(n ?? 0).toLocaleString(undefined, { maximumFractionDigits: 3 });
 
 export default function AdminDashboard() {
   const [summary, setSummary] = useState(null);
@@ -10,6 +20,7 @@ export default function AdminDashboard() {
   const [projects, setProjects] = useState([]);
   const [kpis, setKpis] = useState(null);
   const [lowStock, setLowStock] = useState([]);
+  const [modal, setModal] = useState(null); // { key, title, columns, rows, loading }
 
   useEffect(() => {
     api.get('/users').then(r => setUsers(r.data)).catch(() => {});
@@ -18,6 +29,66 @@ export default function AdminDashboard() {
     api.get('/reports/kpis').then(r => setKpis(r.data)).catch(() => {});
     api.get('/stock/low-stock').then(r => setLowStock(r.data)).catch(() => {});
   }, []);
+
+  async function openModal(key) {
+    if (key === 'low_stock') {
+      setModal({
+        key, title: 'Low Stock Items', loading: false, rows: lowStock,
+        columns: [
+          { key: 'item_number',   header: 'Item No.' },
+          { key: 'description_1', header: 'Description' },
+          { key: 'project_name',  header: 'Project' },
+          { key: 'qty_on_hand',   header: 'On Hand', align: 'right', render: v => num(v) },
+          { key: 'reorder_point', header: 'Reorder At', align: 'right', render: v => num(v) },
+          { key: 'uom',           header: 'UOM' },
+        ],
+      });
+      return;
+    }
+
+    let url, title, columns;
+    if (key === 'pending_requests') {
+      url = '/requests?status=pending';
+      title = 'Pending Requests';
+      columns = [
+        { key: 'request_number', header: 'Request #' },
+        { key: 'project_name',   header: 'Project' },
+        { key: 'requester_name', header: 'Requester' },
+        { key: 'created_at',     header: 'Submitted', render: v => v?.slice(0, 10) },
+        { key: 'status',         header: 'Status' },
+      ];
+    } else if (key === 'requests_7d') {
+      url = `/requests?date_from=${sevenDaysAgo()}`;
+      title = 'Requests — Last 7 Days';
+      columns = [
+        { key: 'request_number', header: 'Request #' },
+        { key: 'project_name',   header: 'Project' },
+        { key: 'requester_name', header: 'Requester' },
+        { key: 'created_at',     header: 'Submitted', render: v => v?.slice(0, 10) },
+        { key: 'status',         header: 'Status' },
+      ];
+    } else if (key === 'issued_month') {
+      url = `/issues?date_from=${startOfMonth()}&date_to=${today()}`;
+      title = 'Issued This Month';
+      columns = [
+        { key: 'dn_number',       header: 'DN #' },
+        { key: 'project_name',    header: 'Project' },
+        { key: 'receiver_name',   header: 'Receiver' },
+        { key: 'storekeeper_name',header: 'Storekeeper' },
+        { key: 'issue_date',      header: 'Date', render: v => v?.slice(0, 10) },
+      ];
+    } else {
+      return;
+    }
+
+    setModal({ key, title, columns, rows: [], loading: true });
+    try {
+      const r = await api.get(url);
+      setModal({ key, title, columns, rows: r.data || [], loading: false });
+    } catch {
+      setModal({ key, title, columns, rows: [], loading: false });
+    }
+  }
 
   const chartData = summary?.issued?.map(row => ({
     name: row.project_name?.slice(0, 12),
@@ -31,40 +102,25 @@ export default function AdminDashboard() {
 
       {/* User / Project stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard title="Total Users" value={users.length} icon="👥" color="blue" />
-        <StatCard title="Active Projects" value={projects.filter(p => p.is_active).length} icon="🏗️" color="green" />
-        <StatCard title="Storekeepers" value={users.filter(u => u.role === 'storekeeper').length} icon="🏪" color="gray" />
-        <StatCard title="Requesters" value={users.filter(u => u.role === 'requester').length} icon="📝" color="yellow" />
+        <StatCard title="Total Users"     value={users.length}                                    icon="👥"  color="blue"   to="/admin/users" />
+        <StatCard title="Active Projects" value={projects.filter(p => p.is_active).length}        icon="🏗️" color="green"  to="/admin/projects" />
+        <StatCard title="Storekeepers"    value={users.filter(u => u.role === 'storekeeper').length} icon="🏪" color="gray"   to="/admin/users?role=storekeeper" />
+        <StatCard title="Requesters"      value={users.filter(u => u.role === 'requester').length}   icon="📝" color="yellow" to="/admin/users?role=requester" />
       </div>
 
       {/* KPI cards */}
       {kpis && (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="bg-white border rounded-xl p-4">
-            <p className="text-xs text-gray-500 mb-1">Pending Requests</p>
-            <p className={`text-3xl font-bold ${kpis.pending_requests > 0 ? 'text-orange-500' : 'text-gray-800'}`}>{kpis.pending_requests}</p>
-          </div>
-          <div className="bg-white border rounded-xl p-4">
-            <p className="text-xs text-gray-500 mb-1">Issued This Month</p>
-            <p className="text-3xl font-bold text-blue-600">{kpis.issued_this_month}</p>
-          </div>
-          <div className="bg-white border rounded-xl p-4">
-            <p className="text-xs text-gray-500 mb-1">Low Stock Items</p>
-            <p className={`text-3xl font-bold ${kpis.low_stock_count > 0 ? 'text-red-500' : 'text-gray-800'}`}>{kpis.low_stock_count}</p>
-          </div>
-          <div className="bg-white border rounded-xl p-4">
-            <p className="text-xs text-gray-500 mb-1">Requests (7 days)</p>
-            <p className="text-3xl font-bold text-gray-800">{kpis.requests_last_7_days}</p>
-          </div>
-          <div className="bg-white border rounded-xl p-4">
-            <p className="text-xs text-gray-500 mb-1">Rejection Rate (this month)</p>
-            <p className={`text-3xl font-bold ${kpis.rejection_rate > 20 ? 'text-red-500' : kpis.rejection_rate > 10 ? 'text-orange-500' : 'text-gray-800'}`}>
-              {kpis.rejection_rate}%
-            </p>
-            <p className="text-xs text-gray-400 mt-0.5">{kpis.rejected_this_month} rejected</p>
-          </div>
+        <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+          <StatCard title="Pending Requests"  value={kpis.pending_requests}     icon="⏱️" color={kpis.pending_requests > 0 ? 'yellow' : 'gray'} onClick={() => openModal('pending_requests')} />
+          <StatCard title="Issued This Month" value={kpis.issued_this_month}    icon="📤" color="blue"                                          onClick={() => openModal('issued_month')} />
+          <StatCard title="Low Stock Items"   value={kpis.low_stock_count}      icon="⚠️" color={kpis.low_stock_count > 0 ? 'red' : 'gray'}    onClick={() => openModal('low_stock')} />
+          <StatCard title="Requests (7 days)" value={kpis.requests_last_7_days} icon="📅" color="gray"                                          onClick={() => openModal('requests_7d')} />
+          <StatCard title="Rejection Rate"    value={`${kpis.rejection_rate ?? 0}%`} icon="🚫" color={kpis.rejection_rate > 20 ? 'red' : kpis.rejection_rate > 10 ? 'yellow' : 'gray'} />
         </div>
       )}
+
+      {/* Material value (cost-based) */}
+      <CostSummaryPanel title="Material Value by Project" />
 
       {/* Top 5 most issued items */}
       {kpis?.top_items?.length > 0 && (
@@ -147,6 +203,16 @@ export default function AdminDashboard() {
           </Link>
         </div>
       </div>
+
+      {modal && (
+        <ListModal
+          title={modal.title}
+          columns={modal.columns}
+          rows={modal.rows}
+          loading={modal.loading}
+          onClose={() => setModal(null)}
+        />
+      )}
     </div>
   );
 }

@@ -2,13 +2,18 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../../utils/axiosInstance';
 import StatCard from '../../components/common/StatCard';
+import CostSummaryPanel from '../../components/common/CostSummaryPanel';
+import ListModal from '../../components/common/ListModal';
 import { useAuth } from '../../context/AuthContext';
+
+const num = (n) => Number(n ?? 0).toLocaleString(undefined, { maximumFractionDigits: 3 });
 
 export default function StorekeeperDashboard() {
   const { user } = useAuth();
   const [pending, setPending] = useState([]);
   const [requests, setRequests] = useState([]);
   const [issues, setIssues] = useState([]);
+  const [modal, setModal] = useState(null);
 
   useEffect(() => {
     api.get('/returns/pending').then(r => setPending(r.data)).catch(() => {});
@@ -20,6 +25,28 @@ export default function StorekeeperDashboard() {
   const today = new Date().toISOString().slice(0,10);
   const overdue = pending.filter(p => p.issue_date < today);
 
+  const pendingColumns = [
+    { key: 'project_name',     header: 'Project' },
+    { key: 'item_number',      header: 'Item No.' },
+    { key: 'description_1',    header: 'Description' },
+    { key: 'quantity_issued',  header: 'Issued',    align: 'right', render: v => num(v) },
+    { key: 'qty_returned',     header: 'Returned',  align: 'right', render: v => num(v) },
+    { key: 'qty_remaining',    header: 'Remaining', align: 'right', render: v => num(v) },
+    { key: 'issue_date',       header: 'Issue Date', render: v => v?.slice(0, 10) },
+    { key: 'receiver_name',    header: 'Receiver' },
+  ];
+  const issuesColumns = [
+    { key: 'dn_number',        header: 'DN #' },
+    { key: 'project_name',     header: 'Project' },
+    { key: 'receiver_name',    header: 'Receiver' },
+    { key: 'issue_date',       header: 'Date', render: v => v?.slice(0, 10) },
+  ];
+
+  const openModal = (key) => {
+    if (key === 'issued_today') setModal({ title: 'Issued Today', columns: issuesColumns, rows: issues, loading: false });
+    if (key === 'overdue')      setModal({ title: 'Overdue Returns', columns: pendingColumns, rows: overdue, loading: false });
+  };
+
   return (
     <div className="space-y-6">
       <div>
@@ -27,11 +54,13 @@ export default function StorekeeperDashboard() {
         <p className="text-gray-500 text-sm mt-1">Storekeeper Dashboard</p>
       </div>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard title="Incoming Requests" value={requests.length} icon="📥" color="blue" />
-        <StatCard title="Issued Today" value={issues.length} icon="📤" color="green" />
-        <StatCard title="Pending Returns" value={pending.length} icon="⏳" color="yellow" />
-        <StatCard title="Overdue" value={overdue.length} icon="⚠️" color="red" />
+        <StatCard title="Incoming Requests" value={requests.length} icon="📥" color="blue"   to="/storekeeper/incoming" />
+        <StatCard title="Issued Today"      value={issues.length}   icon="📤" color="green"  onClick={() => openModal('issued_today')} />
+        <StatCard title="Pending Returns"   value={pending.length}  icon="⏳"  color="yellow" to="/storekeeper/returns" />
+        <StatCard title="Overdue"           value={overdue.length}  icon="⚠️" color="red"    onClick={() => openModal('overdue')} />
       </div>
+      <CostSummaryPanel title="Material Value (Your Projects)" />
+
       <div className="flex flex-wrap gap-3">
         <Link to="/storekeeper/incoming" className="bg-blue-600 text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-blue-700">📥 Incoming Requests</Link>
         <Link to="/storekeeper/pending" className="border px-4 py-2.5 rounded-xl text-sm hover:bg-gray-50">⏳ Pending Returns</Link>
@@ -50,8 +79,18 @@ export default function StorekeeperDashboard() {
               {item.description_1} — Remaining: {item.qty_remaining} {item.uom} · {item.project_name}
             </div>
           ))}
-          {overdue.length > 3 && <Link to="/storekeeper/pending" className="text-xs text-red-500 underline mt-1 block">View all {overdue.length} overdue</Link>}
+          {overdue.length > 3 && <Link to="/storekeeper/returns" className="text-xs text-red-500 underline mt-1 block">View all {overdue.length} overdue</Link>}
         </div>
+      )}
+
+      {modal && (
+        <ListModal
+          title={modal.title}
+          columns={modal.columns}
+          rows={modal.rows}
+          loading={modal.loading}
+          onClose={() => setModal(null)}
+        />
       )}
     </div>
   );

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import api from '../../utils/axiosInstance';
 import Table from '../../components/common/Table';
 import Badge from '../../components/common/Badge';
@@ -81,9 +82,13 @@ const ROLE_DEFAULTS = {
 const ALL_PERMISSION_KEYS = PERMISSION_GROUPS.flatMap(g => g.items.map(i => i.key));
 
 export default function UserManagement() {
+  const [searchParams] = useSearchParams();
   const [users, setUsers] = useState([]);
   const [filterText, setFilterText] = useState('');
-  const [filterRole, setFilterRole] = useState('');
+  const [filterRole, setFilterRole] = useState(() => {
+    const r = searchParams.get('role');
+    return ROLES.includes(r) ? r : '';
+  });
   const [modal, setModal] = useState(false);
   const [form, setForm] = useState(emptyForm);
   const [editing, setEditing] = useState(null);

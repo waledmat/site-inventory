@@ -10,5 +10,6 @@ router.get('/low-stock', auth, ctrl.lowStock);
 router.get('/transactions', auth, role('admin', 'superuser'), ctrl.transactions);
 router.post('/adjust', auth, role('admin', 'superuser'), ctrl.adjust);
 router.put('/:id/reorder-point', auth, role('admin', 'superuser'), ctrl.updateReorderPoint);
+router.put('/:id/unit-cost', auth, role('admin', 'superuser'), ctrl.updateUnitCost);
 
 module.exports = router;

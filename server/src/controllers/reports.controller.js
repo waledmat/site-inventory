@@ -442,6 +442,78 @@ exports.projectDetail = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+// ─── cost summary (monetary value of stock / issued / returned / pending) ──
+
+exports.costSummary = async (req, res, next) => {
+  try {
+    const { project_id } = req.query;
+
+    // Optional role-based scoping for storekeepers
+    let scopedIds = null;
+    if (req.user.role === 'storekeeper') {
+      const sk = await db.query('SELECT project_id FROM project_storekeepers WHERE user_id = $1', [req.user.id]);
+      scopedIds = sk.rows.map(r => r.project_id);
+      if (!scopedIds.length) {
+        return res.json({ totals: { on_hand_value: 0, issued_value: 0, returned_value: 0, pending_return_value: 0, aging_value: 0 }, by_project: [] });
+      }
+    }
+
+    let where = [], params = [];
+    if (project_id) { params.push(project_id); where.push(`s.project_id = $${params.length}`); }
+    if (scopedIds) { params.push(scopedIds); where.push(`s.project_id = ANY($${params.length})`); }
+    const wc = where.length ? 'WHERE ' + where.join(' AND ') : '';
+
+    // Per-project totals computed from stock_items (uses qty * unit_cost)
+    const byProj = await db.query(
+      `SELECT p.id as project_id, p.name as project_name,
+              COALESCE(SUM(s.qty_on_hand        * s.unit_cost), 0) AS on_hand_value,
+              COALESCE(SUM(s.qty_issued         * s.unit_cost), 0) AS issued_value,
+              COALESCE(SUM(s.qty_returned       * s.unit_cost), 0) AS returned_value,
+              COALESCE(SUM(s.qty_pending_return * s.unit_cost), 0) AS pending_return_value,
+              COUNT(s.id) FILTER (WHERE s.unit_cost > 0) AS priced_items,
+              COUNT(s.id) AS total_items
+         FROM stock_items s
+         JOIN projects p ON p.id = s.project_id
+         ${wc}
+        GROUP BY p.id, p.name
+        ORDER BY on_hand_value DESC`,
+      params
+    );
+
+    // Aging value: stock that has been sitting on-hand for > 90 days without movement (last update)
+    const agingWhere = [...where, `s.qty_on_hand > 0`, `s.updated_at < NOW() - INTERVAL '90 days'`];
+    const aging = await db.query(
+      `SELECT COALESCE(SUM(s.qty_on_hand * s.unit_cost), 0) AS aging_value
+         FROM stock_items s
+        WHERE ${agingWhere.join(' AND ')}`,
+      params
+    );
+
+    const totals = byProj.rows.reduce((acc, r) => ({
+      on_hand_value:        acc.on_hand_value        + Number(r.on_hand_value),
+      issued_value:         acc.issued_value         + Number(r.issued_value),
+      returned_value:       acc.returned_value       + Number(r.returned_value),
+      pending_return_value: acc.pending_return_value + Number(r.pending_return_value),
+    }), { on_hand_value: 0, issued_value: 0, returned_value: 0, pending_return_value: 0 });
+
+    totals.aging_value = Number(aging.rows[0]?.aging_value || 0);
+
+    res.json({
+      totals,
+      by_project: byProj.rows.map(r => ({
+        project_id:           r.project_id,
+        project_name:         r.project_name,
+        on_hand_value:        Number(r.on_hand_value),
+        issued_value:         Number(r.issued_value),
+        returned_value:       Number(r.returned_value),
+        pending_return_value: Number(r.pending_return_value),
+        priced_items:         Number(r.priced_items),
+        total_items:          Number(r.total_items),
+      })),
+    });
+  } catch (err) { next(err); }
+};
+
 // ─── KPIs dashboard ──────────────────────────────────────────────────────────
 
 exports.kpis = async (req, res, next) => {

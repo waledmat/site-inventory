@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import api from '../../utils/axiosInstance';
 import StatCard from '../../components/common/StatCard';
+import CostSummaryPanel from '../../components/common/CostSummaryPanel';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, Cell } from 'recharts';
 import * as XLSX from 'xlsx';
 
@@ -88,15 +89,17 @@ export default function SuperUserDashboard() {
 
       {/* Stat cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard title="Active Projects" value={projects.filter(p => p.is_active).length} icon="🏗️" color="blue" />
-        <div className="cursor-pointer" onClick={() => setPendingModal('pending')}>
-          <StatCard title="Pending Returns" value={pending.length} icon="⏳" color="yellow" />
-        </div>
-        <div className="cursor-pointer" onClick={() => setPendingModal('overdue')}>
-          <StatCard title="Overdue" value={overdue.length} icon="⚠️" color="red" />
-        </div>
-        <StatCard title="Total Projects" value={projects.length} icon="📋" color="gray" />
+        <StatCard title="Active Projects" value={projects.filter(p => p.is_active).length} icon="🏗️" color="blue"   to="/superuser/projects" />
+        <StatCard title="Pending Returns" value={pending.length}                            icon="⏳"  color="yellow" onClick={() => setPendingModal('pending')} />
+        <StatCard title="Overdue"         value={overdue.length}                            icon="⚠️" color="red"    onClick={() => setPendingModal('overdue')} />
+        <StatCard title="Total Projects"  value={projects.length}                           icon="📋" color="gray"   to="/superuser/projects" />
       </div>
+
+      {/* Material value (cost-based) */}
+      <CostSummaryPanel
+        title={selectedProject ? `Material Value — ${selectedProject.name}` : 'Material Value by Project'}
+        projectId={selectedProject?.id || null}
+      />
 
       {/* Quick links */}
       <div className="flex flex-wrap gap-3">

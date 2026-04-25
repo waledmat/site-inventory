@@ -6,6 +6,8 @@ export default function StockAdjustment() {
   const [results, setResults] = useState([]);
   const [selected, setSelected] = useState(null);
   const [form, setForm] = useState({ adjustment: '', reason: '' });
+  const [costForm, setCostForm] = useState('');
+  const [costSaving, setCostSaving] = useState(false);
   const [loading, setLoading] = useState(false);
   const [searching, setSearching] = useState(false);
   const [msg, setMsg] = useState(null);
@@ -29,10 +31,28 @@ export default function StockAdjustment() {
   async function handleSelect(item) {
     setSelected(item);
     setForm({ adjustment: '', reason: '' });
+    setCostForm(item.unit_cost ? String(item.unit_cost) : '');
     setMsg(null);
     setResults([]);
     setQuery('');
     fetchTransactions(item.id);
+  }
+
+  async function handleSaveCost(e) {
+    e.preventDefault();
+    if (!selected) return;
+    const cost = parseFloat(costForm);
+    if (isNaN(cost) || cost < 0) { setMsg({ type: 'error', text: 'Unit cost must be a non-negative number' }); return; }
+    setCostSaving(true);
+    setMsg(null);
+    try {
+      const r = await api.put(`/stock/${selected.id}/unit-cost`, { unit_cost: cost });
+      setSelected(s => ({ ...s, unit_cost: r.data.unit_cost }));
+      setMsg({ type: 'success', text: `Unit cost updated to ${cost}` });
+    } catch (err) {
+      setMsg({ type: 'error', text: err.response?.data?.error || 'Failed to update unit cost' });
+    }
+    setCostSaving(false);
   }
 
   async function fetchTransactions(itemId) {
@@ -123,11 +143,35 @@ export default function StockAdjustment() {
             <button onClick={() => setSelected(null)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
           </div>
 
-          <div className="grid grid-cols-3 gap-4 bg-gray-50 rounded-lg p-3 text-sm">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 bg-gray-50 rounded-lg p-3 text-sm">
             <div><div className="text-xs text-gray-500">On Hand</div><div className="font-bold text-lg text-gray-800">{selected.qty_on_hand}</div></div>
             <div><div className="text-xs text-gray-500">Issued</div><div className="font-semibold text-gray-600">{selected.qty_issued}</div></div>
             <div><div className="text-xs text-gray-500">UOM</div><div className="font-semibold text-gray-600">{selected.uom}</div></div>
+            <div>
+              <div className="text-xs text-gray-500">Unit Cost</div>
+              <div className="font-semibold text-gray-800">{Number(selected.unit_cost || 0).toFixed(2)}</div>
+              <div className="text-[10px] text-gray-400">On-hand value: {(Number(selected.qty_on_hand) * Number(selected.unit_cost || 0)).toFixed(2)}</div>
+            </div>
           </div>
+
+          <form onSubmit={handleSaveCost} className="flex flex-wrap items-end gap-2 border-t pt-4">
+            <div className="flex-1 min-w-[160px]">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Unit Cost</label>
+              <input
+                type="number"
+                step="any"
+                min="0"
+                value={costForm}
+                onChange={e => setCostForm(e.target.value)}
+                placeholder="e.g. 12.50"
+                className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <button type="submit" disabled={costSaving}
+              className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50">
+              {costSaving ? 'Saving…' : 'Update Unit Cost'}
+            </button>
+          </form>
 
           {msg && (
             <div className={`px-4 py-3 rounded-lg text-sm font-medium ${msg.type === 'success' ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>

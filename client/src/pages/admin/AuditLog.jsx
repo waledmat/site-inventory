@@ -2,18 +2,95 @@ import { useEffect, useState } from 'react';
 import api from '../../utils/axiosInstance';
 import * as XLSX from 'xlsx';
 
+// ─── Friendly labels for raw JSON keys ───────────────────────────────────────
+const FIELD_LABELS = {
+  dn_id: 'Delivery Note',
+  project_id: 'Project',
+  item_count: 'Item Count',
+  qty_on_hand: 'Qty On Hand',
+  qty_issued: 'Qty Issued',
+  qty_returned: 'Qty Returned',
+  qty_pending_return: 'Pending Return',
+  qty_requested: 'Qty Requested',
+  unit_cost: 'Unit Cost',
+  adjustment: 'Adjustment',
+  reason: 'Reason',
+  notes: 'Notes',
+  status: 'Status',
+  reorder_point: 'Reorder Point',
+  min_quantity: 'Minimum Qty',
+  return_id: 'Return',
+  issue_id: 'Issue',
+  request_id: 'Request',
+  stock_item_id: 'Stock Item',
+  user_id: 'User',
+  receiver_id: 'Receiver',
+  storekeeper_id: 'Storekeeper',
+  description_1: 'Description',
+  description_2: 'Description (line 2)',
+  item_number: 'Item No.',
+  uom: 'UOM',
+  category: 'Category',
+};
+
+const humanizeKey = (k) =>
+  FIELD_LABELS[k] || k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+
+const isUuid = (v) => typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
+
+function formatValue(key, val, lookups) {
+  if (val === null || val === undefined || val === '') return '—';
+  if (typeof val === 'boolean') return val ? 'Yes' : 'No';
+
+  // Resolve UUID references via lookups
+  if (isUuid(val)) {
+    if (key === 'project_id' && lookups.projects[val]) return lookups.projects[val];
+    if ((key === 'user_id' || key === 'receiver_id' || key === 'storekeeper_id') && lookups.users[val]) return lookups.users[val];
+    return `${val.slice(0, 8)}…`;
+  }
+
+  // Money / numeric formatting for cost-related keys
+  if (key === 'unit_cost' || key.endsWith('_value') || key.endsWith('_cost')) {
+    const n = Number(val);
+    if (!Number.isNaN(n)) return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  // Quantity numbers
+  if (typeof val === 'number' || (!isNaN(val) && key.startsWith('qty'))) {
+    return Number(val).toLocaleString(undefined, { maximumFractionDigits: 3 });
+  }
+  // Plain strings / numbers / etc.
+  if (typeof val === 'object') return JSON.stringify(val);
+  return String(val);
+}
+
+function buildChangeEntries(oldRaw, newRaw) {
+  let oldObj = {}, newObj = {};
+  try { if (oldRaw) oldObj = JSON.parse(oldRaw); } catch { oldObj = {}; }
+  try { if (newRaw) newObj = JSON.parse(newRaw); } catch { newObj = {}; }
+  const keys = Array.from(new Set([...Object.keys(oldObj), ...Object.keys(newObj)]));
+  return keys.map(k => ({ key: k, oldVal: oldObj[k], newVal: newObj[k] }));
+}
+
 export default function AuditLog() {
   const [rows, setRows] = useState([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [users, setUsers] = useState([]);
+  const [projects, setProjects] = useState([]);
   const [entityTypes, setEntityTypes] = useState([]);
   const [filters, setFilters] = useState({ user_id: '', entity_type: '', date_from: '', date_to: '' });
   const [page, setPage] = useState(1);
   const limit = 50;
 
+  // Lookups for resolving UUIDs to names
+  const lookups = {
+    projects: Object.fromEntries(projects.map(p => [p.id, p.name])),
+    users:    Object.fromEntries(users.map(u => [u.id, u.name])),
+  };
+
   useEffect(() => {
     api.get('/users').then(r => setUsers(r.data)).catch(() => {});
+    api.get('/projects').then(r => setProjects(r.data)).catch(() => {});
     api.get('/audit/entity-types').then(r => setEntityTypes(r.data)).catch(() => {});
   }, []);
 
@@ -49,15 +126,25 @@ export default function AuditLog() {
     try {
       const params = new URLSearchParams({ page: 1, limit: 10000, ...Object.fromEntries(Object.entries(filters).filter(([,v]) => v)) });
       const r = await api.get(`/audit?${params}`);
-      const data = r.data.rows.map(row => ({
-        'Time': new Date(row.created_at).toLocaleString(),
-        'User': row.user_name || '',
-        'Role': row.user_role || '',
-        'Action': row.action,
-        'Entity': row.entity_type,
-        'Reference No.': row.ref_number || '',
-        'Changes': row.new_value ? JSON.stringify(JSON.parse(row.new_value)) : '',
-      }));
+      const data = r.data.rows.map(row => {
+        const entries = buildChangeEntries(row.old_value, row.new_value);
+        const hasOld = entries.some(e => e.oldVal !== undefined && e.oldVal !== null);
+        const changes = entries.map(({ key, oldVal, newVal }) => {
+          const oldStr = formatValue(key, oldVal, lookups);
+          const newStr = formatValue(key, newVal, lookups);
+          if (hasOld && oldStr !== newStr) return `${humanizeKey(key)}: ${oldStr} → ${newStr}`;
+          return `${humanizeKey(key)}: ${newStr}`;
+        }).join(' · ');
+        return {
+          'Time': new Date(row.created_at).toLocaleString(),
+          'User': row.user_name || '',
+          'Role': row.user_role || '',
+          'Action': row.action,
+          'Entity': row.entity_type,
+          'Reference No.': row.ref_number || '',
+          'Changes': changes,
+        };
+      });
       const ws = XLSX.utils.json_to_sheet(data);
       ws['!cols'] = [{ wch: 20 }, { wch: 16 }, { wch: 12 }, { wch: 18 }, { wch: 16 }, { wch: 36 }, { wch: 50 }];
       const wb = XLSX.utils.book_new();
@@ -127,15 +214,44 @@ export default function AuditLog() {
                 </td>
                 <td className="px-4 py-3 text-gray-600 text-xs">{row.entity_type}</td>
                 <td className="px-4 py-3 text-xs font-mono font-semibold text-blue-700">{row.ref_number || '—'}</td>
-                <td className="px-4 py-3 text-xs text-gray-500 max-w-xs">
-                  {row.new_value && (
-                    <details className="cursor-pointer">
-                      <summary className="text-blue-600 hover:underline">View</summary>
-                      <pre className="mt-1 text-xs bg-gray-50 p-2 rounded overflow-auto max-h-32">
-                        {JSON.stringify(JSON.parse(row.new_value), null, 2)}
-                      </pre>
-                    </details>
-                  )}
+                <td className="px-4 py-3 text-xs text-gray-500 max-w-md">
+                  {(row.new_value || row.old_value) && (() => {
+                    const entries = buildChangeEntries(row.old_value, row.new_value);
+                    if (entries.length === 0) return null;
+                    const hasOld = entries.some(e => e.oldVal !== undefined && e.oldVal !== null);
+                    return (
+                      <details className="cursor-pointer">
+                        <summary className="text-blue-600 hover:underline select-none">View</summary>
+                        <div className="mt-2 bg-gray-50 border border-gray-200 rounded-lg overflow-hidden">
+                          <table className="w-full text-xs">
+                            <tbody className="divide-y divide-gray-200">
+                              {entries.map(({ key, oldVal, newVal }) => {
+                                const oldStr = formatValue(key, oldVal, lookups);
+                                const newStr = formatValue(key, newVal, lookups);
+                                const changed = hasOld && oldStr !== newStr;
+                                return (
+                                  <tr key={key}>
+                                    <td className="px-3 py-1.5 font-medium text-gray-600 whitespace-nowrap align-top">
+                                      {humanizeKey(key)}
+                                    </td>
+                                    <td className="px-3 py-1.5 text-gray-800 break-words">
+                                      {hasOld && (
+                                        <>
+                                          <span className={changed ? 'line-through text-red-500' : 'text-gray-500'}>{oldStr}</span>
+                                          <span className="mx-1.5 text-gray-400">→</span>
+                                        </>
+                                      )}
+                                      <span className={changed ? 'font-semibold text-green-700' : ''}>{newStr}</span>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </details>
+                    );
+                  })()}
                 </td>
               </tr>
             ))}

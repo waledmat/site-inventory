@@ -187,6 +187,31 @@ exports.lookup = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+exports.updateUnitCost = async (req, res, next) => {
+  const client = await db.connect();
+  try {
+    const cost = parseFloat(req.body.unit_cost);
+    if (isNaN(cost) || cost < 0) return res.status(400).json({ error: 'unit_cost must be a non-negative number' });
+
+    await client.query('BEGIN');
+    const { rows: before } = await client.query('SELECT unit_cost FROM stock_items WHERE id = $1', [req.params.id]);
+    if (!before[0]) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Stock item not found' }); }
+
+    const { rows } = await client.query(
+      `UPDATE stock_items SET unit_cost = $1, updated_at = NOW() WHERE id = $2 RETURNING *`,
+      [cost, req.params.id]
+    );
+
+    await logAudit(client, req.user.id, 'STOCK_UNIT_COST_UPDATED', 'stock_item', req.params.id,
+      { unit_cost: parseFloat(before[0].unit_cost) },
+      { unit_cost: cost }
+    );
+    await client.query('COMMIT');
+    res.json(rows[0]);
+  } catch (err) { await client.query('ROLLBACK'); next(err); }
+  finally { client.release(); }
+};
+
 exports.transactions = async (req, res, next) => {
   try {
     const { stock_item_id, type, date_from, date_to, page = 1, limit = 50 } = req.query;

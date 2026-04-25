@@ -28,6 +28,7 @@ const DEFAULT_COLUMNS = {
   received_by_id:       'Received By',
   qty_returned:         'Returned Quantity',
   qty_pending_return:   'Pending Return QTY',
+  unit_cost:            'UNIT COST',
 };
 
 async function getColumnMap() {
@@ -103,6 +104,7 @@ exports.parsePackingList = async (buffer, overrideProjectId = null) => {
     const receivedById    = pick(row, col(cols, 'received_by_id')) ?? null;
     const qtyReturned     = parseFloat(pick(row, col(cols, 'qty_returned'))          ?? 0);
     const qtyPendingReturn= parseFloat(pick(row, col(cols, 'qty_pending_return'))    ?? 0);
+    const unitCost        = parseFloat(pick(row, col(cols, 'unit_cost'))             ?? 0) || 0;
 
     if (!desc1) errs.push('Item Description is required');
     if (!uom)   errs.push('UOM is required');
@@ -151,7 +153,8 @@ exports.parsePackingList = async (buffer, overrideProjectId = null) => {
       qty_requested: qtyRequested, qty_on_hand: qtyOnHand, qty_pending_warehouse: qtyPending,
       container_no: containerNo, qty_issued: qtyIssued,
       issued_by_id: issuedById, received_by_id: receivedById,
-      qty_returned: qtyReturned, qty_pending_return: qtyPendingReturn
+      qty_returned: qtyReturned, qty_pending_return: qtyPendingReturn,
+      unit_cost: unitCost
     };
 
     if (errs.length) {
@@ -173,8 +176,8 @@ exports.confirmImport = async (validRows) => {
         `INSERT INTO stock_items
            (project_id, project_number, y3_number, category, item_number,
             description_1, description_2, uom, qty_requested, qty_on_hand,
-            qty_pending_warehouse, container_no, qty_issued, qty_returned, qty_pending_return)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+            qty_pending_warehouse, container_no, qty_issued, qty_returned, qty_pending_return, unit_cost)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
          ON CONFLICT (project_id, item_number) DO UPDATE SET
            description_1         = EXCLUDED.description_1,
            description_2         = EXCLUDED.description_2,
@@ -186,10 +189,12 @@ exports.confirmImport = async (validRows) => {
            qty_issued            = EXCLUDED.qty_issued,
            qty_returned          = EXCLUDED.qty_returned,
            qty_pending_return    = EXCLUDED.qty_pending_return,
+           unit_cost             = CASE WHEN EXCLUDED.unit_cost > 0 THEN EXCLUDED.unit_cost ELSE stock_items.unit_cost END,
            updated_at            = NOW()`,
         [row.project_id, row.project_number, row.y3_number, row.category, row.item_number,
          row.description_1, row.description_2, row.uom, row.qty_requested, row.qty_on_hand,
-         row.qty_pending_warehouse, row.container_no, row.qty_issued, row.qty_returned, row.qty_pending_return]
+         row.qty_pending_warehouse, row.container_no, row.qty_issued, row.qty_returned, row.qty_pending_return,
+         row.unit_cost || 0]
       );
     }
     await client.query('COMMIT');
