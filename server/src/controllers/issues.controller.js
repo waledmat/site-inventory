@@ -186,6 +186,14 @@ async function getIssueData(id) {
      WHERE i.id = $1`, [id]
   );
   if (!rows[0]) return null;
-  const items = await db.query('SELECT * FROM issue_items WHERE issue_id = $1', [id]);
+  const items = await db.query(
+    `SELECT ii.*,
+            COALESCE(s.unit_cost, 0) AS unit_cost,
+            (ii.quantity_issued * COALESCE(s.unit_cost, 0)) AS total_value
+       FROM issue_items ii
+       LEFT JOIN stock_items s ON s.id = ii.stock_item_id
+      WHERE ii.issue_id = $1`,
+    [id]
+  );
   return { ...rows[0], items: items.rows };
 }

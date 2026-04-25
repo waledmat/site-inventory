@@ -53,10 +53,14 @@ exports.summary = async (req, res, next) => {
     const wc = where.length ? 'WHERE ' + where.join(' AND ') : '';
 
     const issued = await db.query(
-      `SELECT p.name as project_name, COUNT(i.id) as issue_count, SUM(ii.quantity_issued) as total_qty
+      `SELECT p.name as project_name,
+              COUNT(i.id) as issue_count,
+              SUM(ii.quantity_issued) as total_qty,
+              SUM(ii.quantity_issued * COALESCE(s.unit_cost, 0)) as issued_value
        FROM material_issues i
        JOIN projects p ON p.id = i.project_id
        JOIN issue_items ii ON ii.issue_id = i.id
+       LEFT JOIN stock_items s ON s.id = ii.stock_item_id
        ${wc} GROUP BY p.name ORDER BY p.name`, params
     );
     // Build a separate where clause for returns (using return_date instead of issue_date)
@@ -67,24 +71,55 @@ exports.summary = async (req, res, next) => {
     const rwc = rwhere.length ? 'WHERE ' + rwhere.join(' AND ') : '';
 
     const returned = await db.query(
-      `SELECT p.name as project_name, SUM(r.quantity_returned) as total_returned
+      `SELECT p.name as project_name,
+              SUM(r.quantity_returned) as total_returned,
+              SUM(r.quantity_returned * COALESCE(s.unit_cost, 0)) as returned_value
        FROM material_returns r
        JOIN projects p ON p.id = r.project_id
+       LEFT JOIN issue_items ii ON ii.id = r.issue_item_id
+       LEFT JOIN stock_items s ON s.id = ii.stock_item_id
        ${rwc} GROUP BY p.name`, rparams
     );
 
     const issuedRows  = issued.rows;
-    const returnedMap = Object.fromEntries(returned.rows.map(r => [r.project_name, r.total_returned]));
+    const returnedMap = Object.fromEntries(returned.rows.map(r => [r.project_name, { qty: r.total_returned, value: r.returned_value }]));
     const dateRange   = (date_from || date_to) ? `Period: ${date_from || '—'} to ${date_to || '—'}` : `Date: ${TODAY()}`;
 
+    const fmt2 = (n) => Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const totals = issuedRows.reduce((acc, r) => {
+      const retData = returnedMap[r.project_name] || { qty: 0, value: 0 };
+      acc.issues       += Number(r.issue_count);
+      acc.qty          += Number(r.total_qty);
+      acc.issuedValue  += Number(r.issued_value || 0);
+      acc.retQty       += Number(retData.qty || 0);
+      acc.retValue     += Number(retData.value || 0);
+      return acc;
+    }, { issues: 0, qty: 0, issuedValue: 0, retQty: 0, retValue: 0 });
+
     if (format === 'excel') {
-      const data = issuedRows.map(r => ({
-        'Project':          r.project_name,
-        'Total Issues':     Number(r.issue_count),
-        'Total Qty Issued': Number(r.total_qty),
-        'Total Returned':   Number(returnedMap[r.project_name] ?? 0),
-        'Net Outstanding':  Number(r.total_qty) - Number(returnedMap[r.project_name] ?? 0),
-      }));
+      const data = issuedRows.map(r => {
+        const retData = returnedMap[r.project_name] || { qty: 0, value: 0 };
+        return {
+          'Project':          r.project_name,
+          'Total Issues':     Number(r.issue_count),
+          'Total Qty Issued': Number(r.total_qty),
+          'Issued Value':     Number(r.issued_value || 0),
+          'Total Returned':   Number(retData.qty || 0),
+          'Returned Value':   Number(retData.value || 0),
+          'Net Outstanding':  Number(r.total_qty) - Number(retData.qty || 0),
+          'Outstanding Value': Number(r.issued_value || 0) - Number(retData.value || 0),
+        };
+      });
+      data.push({
+        'Project': 'GRAND TOTAL',
+        'Total Issues': totals.issues,
+        'Total Qty Issued': totals.qty,
+        'Issued Value': totals.issuedValue,
+        'Total Returned': totals.retQty,
+        'Returned Value': totals.retValue,
+        'Net Outstanding': totals.qty - totals.retQty,
+        'Outstanding Value': totals.issuedValue - totals.retValue,
+      });
       return sendExcel(res, `summary-${TODAY()}.xlsx`, [{ name: 'Summary', data }]);
     }
 
@@ -92,34 +127,40 @@ exports.summary = async (req, res, next) => {
       return sendPdf(res, `summary-${TODAY()}.pdf`, doc => {
         pdfHeader(doc, 'MATERIAL SUMMARY REPORT', null, dateRange);
 
-        const cols = { no: 40, proj: 70, issues: 310, qty: 390, returned: 480, outstanding: 570 };
-        doc.fontSize(9).font('Helvetica-Bold');
+        const cols = { no: 40, proj: 60, issues: 240, qty: 295, issVal: 365, ret: 445, retVal: 500, out: 580, outVal: 650 };
+        doc.fontSize(8).font('Helvetica-Bold');
         const th = doc.y;
-        doc.text('#',            cols.no,          th);
-        doc.text('Project',      cols.proj,         th);
-        doc.text('Issues',       cols.issues,       th);
-        doc.text('Qty Issued',   cols.qty,          th);
-        doc.text('Returned',     cols.returned,     th);
-        doc.text('Outstanding',  cols.outstanding,  th);
+        doc.text('#',            cols.no,     th);
+        doc.text('Project',      cols.proj,   th);
+        doc.text('Issues',       cols.issues, th);
+        doc.text('Qty Iss.',     cols.qty,    th);
+        doc.text('Issued $',     cols.issVal, th);
+        doc.text('Returned',     cols.ret,    th);
+        doc.text('Return $',     cols.retVal, th);
+        doc.text('Outstand.',    cols.out,    th);
+        doc.text('Outst. $',     cols.outVal, th);
         doc.moveDown(0.3);
         doc.moveTo(40, doc.y).lineTo(801, doc.y).stroke();
         doc.moveDown(0.2);
 
-        doc.font('Helvetica').fontSize(9);
-        let totalIssues = 0, totalQty = 0, totalRet = 0;
+        doc.font('Helvetica').fontSize(8);
         issuedRows.forEach((r, i) => {
-          const ret  = Number(returnedMap[r.project_name] ?? 0);
-          const out  = Number(r.total_qty) - ret;
-          totalIssues += Number(r.issue_count);
-          totalQty    += Number(r.total_qty);
-          totalRet    += ret;
+          const retData = returnedMap[r.project_name] || { qty: 0, value: 0 };
+          const retQ    = Number(retData.qty || 0);
+          const retV    = Number(retData.value || 0);
+          const issV    = Number(r.issued_value || 0);
+          const outQ    = Number(r.total_qty) - retQ;
+          const outV    = issV - retV;
           const ry = doc.y;
-          doc.text(String(i + 1),            cols.no,         ry);
-          doc.text(r.project_name,           cols.proj,       ry, { width: 230 });
-          doc.text(String(r.issue_count),    cols.issues,     ry);
-          doc.text(String(r.total_qty),      cols.qty,        ry);
-          doc.text(String(ret),              cols.returned,   ry);
-          doc.text(String(out.toFixed(3)),   cols.outstanding,ry);
+          doc.text(String(i + 1),            cols.no,     ry);
+          doc.text(r.project_name,           cols.proj,   ry, { width: 175 });
+          doc.text(String(r.issue_count),    cols.issues, ry);
+          doc.text(String(r.total_qty),      cols.qty,    ry);
+          doc.text(fmt2(issV),               cols.issVal, ry);
+          doc.text(String(retQ),             cols.ret,    ry);
+          doc.text(fmt2(retV),               cols.retVal, ry);
+          doc.text(outQ.toFixed(3),          cols.out,    ry);
+          doc.text(fmt2(outV),               cols.outVal, ry);
           doc.moveDown(0.7);
         });
 
@@ -127,17 +168,20 @@ exports.summary = async (req, res, next) => {
         doc.moveDown(0.3);
         doc.font('Helvetica-Bold').fontSize(9);
         const ty = doc.y;
-        doc.text('TOTAL', cols.proj, ty);
-        doc.text(String(totalIssues), cols.issues, ty);
-        doc.text(String(totalQty.toFixed(3)), cols.qty, ty);
-        doc.text(String(totalRet.toFixed(3)), cols.returned, ty);
-        doc.text(String((totalQty - totalRet).toFixed(3)), cols.outstanding, ty);
+        doc.text('GRAND TOTAL',                 cols.proj,   ty);
+        doc.text(String(totals.issues),         cols.issues, ty);
+        doc.text(totals.qty.toFixed(3),         cols.qty,    ty);
+        doc.text(fmt2(totals.issuedValue),      cols.issVal, ty);
+        doc.text(totals.retQty.toFixed(3),      cols.ret,    ty);
+        doc.text(fmt2(totals.retValue),         cols.retVal, ty);
+        doc.text((totals.qty - totals.retQty).toFixed(3),     cols.out,    ty);
+        doc.text(fmt2(totals.issuedValue - totals.retValue), cols.outVal, ty);
         doc.moveDown(1);
         doc.font('Helvetica').fontSize(8).text(`Generated: ${new Date().toLocaleString()}`, 40);
       });
     }
 
-    res.json({ issued: issuedRows, returned: returned.rows });
+    res.json({ issued: issuedRows, returned: returned.rows, totals });
   } catch (err) { next(err); }
 };
 
@@ -228,7 +272,9 @@ exports.packingList = async (req, res, next) => {
 
     const { rows } = await db.query(
       `SELECT item_number, description_1, description_2, category, uom,
-              qty_on_hand, qty_issued, qty_pending_return, container_no, y3_number
+              qty_on_hand, qty_issued, qty_pending_return, container_no, y3_number,
+              COALESCE(unit_cost, 0) AS unit_cost,
+              (qty_on_hand * COALESCE(unit_cost, 0)) AS total_value
        FROM stock_items ${wc} ORDER BY item_number`, params
     );
 
@@ -238,6 +284,8 @@ exports.packingList = async (req, res, next) => {
       if (pr.rows[0]) projectName = pr.rows[0].name;
     }
 
+    const grandTotal = rows.reduce((s, r) => s + Number(r.total_value || 0), 0);
+
     if (format === 'excel') {
       const data = rows.map(r => ({
         'Item Number':    r.item_number || '',
@@ -246,11 +294,20 @@ exports.packingList = async (req, res, next) => {
         'Category':       r.category || '',
         'UOM':            r.uom || '',
         'On Hand':        Number(r.qty_on_hand ?? 0),
+        'Unit Cost':      Number(r.unit_cost ?? 0),
+        'Total Value':    Number(r.total_value ?? 0),
         'Issued':         Number(r.qty_issued ?? 0),
         'Pending Return': Number(r.qty_pending_return ?? 0),
         'Container No':   r.container_no || '',
         'Y3 Number':      r.y3_number || '',
       }));
+      // Grand total footer row
+      data.push({
+        'Item Number': '', 'Description': 'GRAND TOTAL', 'Description 2': '',
+        'Category': '', 'UOM': '', 'On Hand': '', 'Unit Cost': '',
+        'Total Value': grandTotal,
+        'Issued': '', 'Pending Return': '', 'Container No': '', 'Y3 Number': '',
+      });
       return sendExcel(res, `packing-list-${TODAY()}.xlsx`, [{ name: projectName.slice(0, 31), data }]);
     }
 
@@ -272,7 +329,8 @@ exports.packingList = async (req, res, next) => {
     doc.moveTo(40, doc.y).lineTo(801, doc.y).stroke();
     doc.moveDown(0.4);
 
-    const cols = { no: 40, itemNo: 60, desc: 160, cat: 340, uom: 400, onHand: 445, issued: 510, pending: 575, container: 635 };
+    const cols = { no: 40, itemNo: 60, desc: 150, cat: 305, uom: 340, onHand: 380, unitCost: 430, totalVal: 490, issued: 565, pending: 615, container: 670 };
+    const fmt2 = (n) => Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     doc.fontSize(8).font('Helvetica-Bold');
     const th = doc.y;
     doc.text('#',            cols.no,        th);
@@ -281,6 +339,8 @@ exports.packingList = async (req, res, next) => {
     doc.text('Cat',          cols.cat,       th);
     doc.text('UOM',          cols.uom,       th);
     doc.text('On Hand',      cols.onHand,    th);
+    doc.text('Unit Cost',    cols.unitCost,  th);
+    doc.text('Total Value',  cols.totalVal,  th);
     doc.text('Issued',       cols.issued,    th);
     doc.text('Pending Ret.', cols.pending,   th);
     doc.text('Container',    cols.container, th);
@@ -294,19 +354,26 @@ exports.packingList = async (req, res, next) => {
       const ry = doc.y;
       doc.text(String(i + 1),                                                    cols.no,        ry);
       doc.text(item.item_number || '—',                                           cols.itemNo,    ry);
-      doc.text((item.description_1 || '') + (item.description_2 ? ` / ${item.description_2}` : ''), cols.desc, ry, { width: 170 });
+      doc.text((item.description_1 || '') + (item.description_2 ? ` / ${item.description_2}` : ''), cols.desc, ry, { width: 145 });
       doc.text(item.category || '—',                                              cols.cat,       ry);
       doc.text(item.uom || '—',                                                   cols.uom,       ry);
       doc.text(String(item.qty_on_hand ?? 0),                                     cols.onHand,    ry);
+      doc.text(fmt2(item.unit_cost),                                              cols.unitCost,  ry);
+      doc.text(fmt2(item.total_value),                                            cols.totalVal,  ry);
       doc.text(String(item.qty_issued ?? 0),                                      cols.issued,    ry);
       doc.text(String(item.qty_pending_return ?? 0),                              cols.pending,   ry);
       doc.text(item.container_no || '—',                                          cols.container, ry, { width: 100 });
       doc.moveDown(0.7);
     });
 
-    doc.moveDown(0.5);
+    doc.moveDown(0.3);
     doc.moveTo(40, doc.y).lineTo(801, doc.y).stroke();
-    doc.moveDown(0.5);
+    doc.moveDown(0.3);
+    doc.font('Helvetica-Bold').fontSize(9);
+    const ty = doc.y;
+    doc.text('GRAND TOTAL', cols.desc, ty);
+    doc.text(fmt2(grandTotal), cols.totalVal, ty);
+    doc.moveDown(0.8);
     doc.fontSize(8).font('Helvetica').text(`Total Items: ${rows.length}`, 40);
     doc.end();
   } catch (err) { next(err); }
@@ -326,33 +393,41 @@ exports.exportExcel = async (req, res, next) => {
     const { rows } = await db.query(
       `SELECT i.delivery_note_id, mr.request_number, p.name as project, i.issue_date,
               sk.name as storekeeper, rc.name as receiver,
-              ii.item_number, ii.description_1, ii.quantity_issued, ii.uom
+              ii.item_number, ii.description_1, ii.quantity_issued, ii.uom,
+              COALESCE(s.unit_cost, 0) AS unit_cost,
+              (ii.quantity_issued * COALESCE(s.unit_cost, 0)) AS total_value
        FROM material_issues i
        JOIN projects p ON p.id = i.project_id
        JOIN users sk ON sk.id = i.storekeeper_id
        LEFT JOIN users rc ON rc.id = i.receiver_id
        JOIN issue_items ii ON ii.issue_id = i.id
+       LEFT JOIN stock_items s ON s.id = ii.stock_item_id
        LEFT JOIN material_requests mr ON mr.id = i.request_id
        ${wc} ORDER BY i.issue_date DESC`, params
     );
+
+    const fmt2 = (n) => Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const grandTotal = rows.reduce((s, r) => s + Number(r.total_value || 0), 0);
 
     if (format === 'pdf') {
       const dateRange = (date_from || date_to) ? `Period: ${date_from || '—'} to ${date_to || '—'}` : `Date: ${TODAY()}`;
       return sendPdf(res, `issues-export-${TODAY()}.pdf`, doc => {
         pdfHeader(doc, 'MATERIAL ISSUES REPORT', null, dateRange);
 
-        const cols = { no: 40, dn: 65, proj: 160, date: 295, sk: 365, recv: 465, item: 555, desc: 610, qty: 720, uom: 755 };
+        const cols = { no: 40, dn: 65, proj: 145, date: 250, sk: 310, recv: 395, item: 475, qty: 540, uom: 575, unitCost: 615, totalVal: 680 };
         doc.fontSize(7).font('Helvetica-Bold');
         const th = doc.y;
-        doc.text('#',           cols.no,   th);
-        doc.text('DN#',         cols.dn,   th);
-        doc.text('Project',     cols.proj, th);
-        doc.text('Date',        cols.date, th);
-        doc.text('Storekeeper', cols.sk,   th);
-        doc.text('Receiver',    cols.recv, th);
-        doc.text('Item',        cols.item, th);
-        doc.text('Qty',         cols.qty,  th);
-        doc.text('UOM',         cols.uom,  th);
+        doc.text('#',           cols.no,       th);
+        doc.text('DN#',         cols.dn,       th);
+        doc.text('Project',     cols.proj,     th);
+        doc.text('Date',        cols.date,     th);
+        doc.text('Storekeeper', cols.sk,       th);
+        doc.text('Receiver',    cols.recv,     th);
+        doc.text('Item',        cols.item,     th);
+        doc.text('Qty',         cols.qty,      th);
+        doc.text('UOM',         cols.uom,      th);
+        doc.text('Unit Cost',   cols.unitCost, th);
+        doc.text('Total',       cols.totalVal, th);
         doc.moveDown(0.3);
         doc.moveTo(40, doc.y).lineTo(801, doc.y).stroke();
         doc.moveDown(0.2);
@@ -361,40 +436,52 @@ exports.exportExcel = async (req, res, next) => {
         rows.forEach((r, i) => {
           if (doc.y > 520) { doc.addPage({ layout: 'landscape' }); doc.y = 40; }
           const ry = doc.y;
-          doc.text(String(i + 1),                  cols.no,   ry);
-          doc.text(r.delivery_note_id || '—',       cols.dn,   ry, { width: 90 });
-          doc.text(r.project || '—',                cols.proj, ry, { width: 125 });
-          doc.text(String(r.issue_date).slice(0,10),cols.date, ry);
-          doc.text(r.storekeeper || '—',            cols.sk,   ry, { width: 90 });
-          doc.text(r.receiver || '—',               cols.recv, ry, { width: 80 });
-          doc.text(r.item_number || '—',            cols.item, ry, { width: 50 });
-          doc.text(String(r.quantity_issued ?? 0),  cols.qty,  ry);
-          doc.text(r.uom || '—',                    cols.uom,  ry);
+          doc.text(String(i + 1),                   cols.no,       ry);
+          doc.text(r.delivery_note_id || '—',        cols.dn,       ry, { width: 75 });
+          doc.text(r.project || '—',                 cols.proj,     ry, { width: 100 });
+          doc.text(String(r.issue_date).slice(0,10), cols.date,     ry);
+          doc.text(r.storekeeper || '—',             cols.sk,       ry, { width: 80 });
+          doc.text(r.receiver || '—',                cols.recv,     ry, { width: 75 });
+          doc.text(r.item_number || '—',             cols.item,     ry, { width: 60 });
+          doc.text(String(r.quantity_issued ?? 0),   cols.qty,      ry);
+          doc.text(r.uom || '—',                     cols.uom,      ry);
+          doc.text(fmt2(r.unit_cost),                cols.unitCost, ry);
+          doc.text(fmt2(r.total_value),              cols.totalVal, ry);
           doc.moveDown(0.65);
         });
 
         doc.moveTo(40, doc.y).lineTo(801, doc.y).stroke();
-        doc.moveDown(0.4);
+        doc.moveDown(0.3);
+        doc.font('Helvetica-Bold').fontSize(8);
+        const ty = doc.y;
+        doc.text('GRAND TOTAL',     cols.item,     ty);
+        doc.text(fmt2(grandTotal),  cols.totalVal, ty);
+        doc.moveDown(0.6);
         doc.font('Helvetica').fontSize(8).text(`Total Records: ${rows.length}  |  Generated: ${new Date().toLocaleString()}`, 40);
       });
     }
 
     // Default: Excel
-    sendExcel(res, `issues-export-${TODAY()}.xlsx`, [{
-      name: 'Issues',
-      data: rows.map(r => ({
-        'Delivery Note':  r.delivery_note_id,
-        'Request Ref':    r.request_number || '',
-        'Project':        r.project,
-        'Issue Date':     r.issue_date,
-        'Storekeeper':    r.storekeeper,
-        'Receiver':       r.receiver,
-        'Item Number':    r.item_number,
-        'Description':    r.description_1,
-        'Qty Issued':     Number(r.quantity_issued),
-        'UOM':            r.uom,
-      })),
-    }]);
+    const excelData = rows.map(r => ({
+      'Delivery Note':  r.delivery_note_id,
+      'Request Ref':    r.request_number || '',
+      'Project':        r.project,
+      'Issue Date':     r.issue_date,
+      'Storekeeper':    r.storekeeper,
+      'Receiver':       r.receiver,
+      'Item Number':    r.item_number,
+      'Description':    r.description_1,
+      'Qty Issued':     Number(r.quantity_issued),
+      'UOM':            r.uom,
+      'Unit Cost':      Number(r.unit_cost || 0),
+      'Total Value':    Number(r.total_value || 0),
+    }));
+    excelData.push({
+      'Delivery Note': '', 'Request Ref': '', 'Project': '', 'Issue Date': '',
+      'Storekeeper': '', 'Receiver': '', 'Item Number': '', 'Description': 'GRAND TOTAL',
+      'Qty Issued': '', 'UOM': '', 'Unit Cost': '', 'Total Value': grandTotal,
+    });
+    sendExcel(res, `issues-export-${TODAY()}.xlsx`, [{ name: 'Issues', data: excelData }]);
   } catch (err) { next(err); }
 };
 
@@ -408,11 +495,13 @@ exports.projectDetail = async (req, res, next) => {
     // Per-item issued quantities for this project
     const { rows: issuedRows } = await db.query(
       `SELECT ii.stock_item_id, ii.item_number, ii.description_1, ii.description_2, ii.uom,
+              COALESCE(s.unit_cost, 0) AS unit_cost,
               SUM(ii.quantity_issued) AS qty_issued
        FROM issue_items ii
        JOIN material_issues mi ON mi.id = ii.issue_id
+       LEFT JOIN stock_items s ON s.id = ii.stock_item_id
        WHERE mi.project_id = $1
-       GROUP BY ii.stock_item_id, ii.item_number, ii.description_1, ii.description_2, ii.uom
+       GROUP BY ii.stock_item_id, ii.item_number, ii.description_1, ii.description_2, ii.uom, s.unit_cost
        ORDER BY ii.description_1`,
       [project_id]
     );
@@ -435,10 +524,106 @@ exports.projectDetail = async (req, res, next) => {
       const issued = parseFloat(row.qty_issued);
       const returned = returnedMap[row.stock_item_id] ?? 0;
       const pending = Math.max(0, issued - returned);
-      return { ...row, qty_issued: issued, qty_returned: returned, qty_pending: pending };
+      const unitCost = parseFloat(row.unit_cost) || 0;
+      return {
+        ...row,
+        qty_issued:     issued,
+        qty_returned:   returned,
+        qty_pending:    pending,
+        unit_cost:      unitCost,
+        issued_value:   issued * unitCost,
+        returned_value: returned * unitCost,
+        pending_value:  pending * unitCost,
+      };
     });
 
     res.json(items);
+  } catch (err) { next(err); }
+};
+
+// ─── consumption report (issued × unit_cost, consumables + spare parts only) ─
+
+exports.consumption = async (req, res, next) => {
+  try {
+    const { project_id, date_from, date_to, format } = req.query;
+
+    // Categories that count as actual consumption — exclude CH (chargeable)
+    const categories = ['DC', 'SPARE'];
+
+    let where = [`s.category = ANY($1)`];
+    const params = [categories];
+
+    if (project_id) { params.push(project_id); where.push(`mi.project_id = $${params.length}`); }
+    if (date_from)  { params.push(date_from);  where.push(`mi.issue_date >= $${params.length}`); }
+    if (date_to)    { params.push(date_to);    where.push(`mi.issue_date <= $${params.length}`); }
+
+    const { rows } = await db.query(
+      `SELECT s.id              AS stock_item_id,
+              s.item_number,
+              s.description_1,
+              s.description_2,
+              s.uom,
+              s.category,
+              p.id              AS project_id,
+              p.name            AS project_name,
+              s.unit_cost,
+              SUM(ii.quantity_issued)                    AS qty_issued,
+              SUM(ii.quantity_issued * s.unit_cost)      AS total_value
+         FROM issue_items ii
+         JOIN material_issues mi  ON mi.id = ii.issue_id
+         JOIN stock_items s       ON s.id = ii.stock_item_id
+         JOIN projects p          ON p.id = mi.project_id
+        WHERE ${where.join(' AND ')}
+        GROUP BY s.id, s.item_number, s.description_1, s.description_2, s.uom, s.category,
+                 p.id, p.name, s.unit_cost
+        ORDER BY total_value DESC NULLS LAST`,
+      params
+    );
+
+    const items = rows.map(r => ({
+      stock_item_id: r.stock_item_id,
+      project_id:    r.project_id,
+      project_name:  r.project_name,
+      item_number:   r.item_number,
+      description_1: r.description_1,
+      description_2: r.description_2,
+      uom:           r.uom,
+      category:      r.category,
+      qty_issued:    Number(r.qty_issued),
+      unit_cost:     Number(r.unit_cost),
+      total_value:   Number(r.total_value),
+    }));
+
+    const totals = {
+      qty_issued:  items.reduce((s, r) => s + r.qty_issued,  0),
+      total_value: items.reduce((s, r) => s + r.total_value, 0),
+      by_category: {
+        DC:    { qty: 0, value: 0 },
+        SPARE: { qty: 0, value: 0 },
+      },
+    };
+    items.forEach(r => {
+      if (totals.by_category[r.category]) {
+        totals.by_category[r.category].qty   += r.qty_issued;
+        totals.by_category[r.category].value += r.total_value;
+      }
+    });
+
+    if (format === 'excel') {
+      const data = items.map(r => ({
+        'Project':      r.project_name,
+        'Category':     r.category,
+        'Item No.':     r.item_number || '',
+        'Description':  r.description_1,
+        'UOM':          r.uom,
+        'Qty Issued':   r.qty_issued,
+        'Unit Cost':    r.unit_cost,
+        'Total Value':  r.total_value,
+      }));
+      return sendExcel(res, `consumption-${TODAY()}.xlsx`, [{ name: 'Consumption', data }]);
+    }
+
+    res.json({ items, totals, categories });
   } catch (err) { next(err); }
 };
 

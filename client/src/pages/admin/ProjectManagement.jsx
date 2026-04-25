@@ -288,35 +288,54 @@ function DetailDrawer({ project, onClose, onEdit, onAssignSk, onAssignRq, onRemo
             <div>
               {(!project.stock_items || project.stock_items.length === 0)
                 ? <p className="text-sm text-gray-400 italic">No stock items uploaded for this project.</p>
-                : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-xs border-collapse">
-                      <thead>
-                        <tr className="bg-gray-50 border-b">
-                          {['Item No', 'Description', 'Cat', 'UOM', 'On Hand', 'Issued', 'Returned', 'Container'].map(h => (
-                            <th key={h} className="text-left px-3 py-2 font-semibold text-gray-500 whitespace-nowrap">{h}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {project.stock_items.map((item, i) => (
-                          <tr key={i} className="border-b hover:bg-gray-50">
-                            <td className="px-3 py-2 font-mono text-gray-700">{item.item_number || '—'}</td>
-                            <td className="px-3 py-2 text-gray-800 max-w-[180px] truncate" title={item.description_1}>{item.description_1}</td>
-                            <td className="px-3 py-2">
-                              {item.category ? <span className="bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded text-xs">{item.category}</span> : '—'}
-                            </td>
-                            <td className="px-3 py-2 text-gray-600">{item.uom}</td>
-                            <td className="px-3 py-2 font-semibold text-green-700">{num(item.qty_on_hand)}</td>
-                            <td className="px-3 py-2 text-orange-600">{num(item.qty_issued)}</td>
-                            <td className="px-3 py-2 text-purple-600">{num(item.qty_returned)}</td>
-                            <td className="px-3 py-2 text-gray-500">{item.container_no || '—'}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )
+                : (() => {
+                    const grandTotal = project.stock_items.reduce(
+                      (s, it) => s + Number(it.total_value ?? (Number(it.qty_on_hand || 0) * Number(it.unit_cost || 0))),
+                      0
+                    );
+                    const fmtMoney = (n) => Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                    return (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs border-collapse">
+                          <thead>
+                            <tr className="bg-gray-50 border-b">
+                              {['Item No', 'Description', 'Cat', 'UOM', 'On Hand', 'Unit Cost', 'Total Value', 'Issued', 'Returned', 'Container'].map(h => (
+                                <th key={h} className="text-left px-3 py-2 font-semibold text-gray-500 whitespace-nowrap">{h}</th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {project.stock_items.map((item, i) => {
+                              const lineTotal = Number(item.total_value ?? (Number(item.qty_on_hand || 0) * Number(item.unit_cost || 0)));
+                              return (
+                                <tr key={i} className="border-b hover:bg-gray-50">
+                                  <td className="px-3 py-2 font-mono text-gray-700">{item.item_number || '—'}</td>
+                                  <td className="px-3 py-2 text-gray-800 max-w-[180px] truncate" title={item.description_1}>{item.description_1}</td>
+                                  <td className="px-3 py-2">
+                                    {item.category ? <span className="bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded text-xs">{item.category}</span> : '—'}
+                                  </td>
+                                  <td className="px-3 py-2 text-gray-600">{item.uom}</td>
+                                  <td className="px-3 py-2 font-semibold text-green-700">{num(item.qty_on_hand)}</td>
+                                  <td className="px-3 py-2 text-gray-700">{fmtMoney(item.unit_cost)}</td>
+                                  <td className="px-3 py-2 font-semibold text-blue-700">{fmtMoney(lineTotal)}</td>
+                                  <td className="px-3 py-2 text-orange-600">{num(item.qty_issued)}</td>
+                                  <td className="px-3 py-2 text-purple-600">{num(item.qty_returned)}</td>
+                                  <td className="px-3 py-2 text-gray-500">{item.container_no || '—'}</td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                          <tfoot>
+                            <tr className="bg-blue-50 border-t-2 border-blue-300 font-bold">
+                              <td className="px-3 py-2.5 text-gray-700" colSpan={6}>GRAND TOTAL VALUE</td>
+                              <td className="px-3 py-2.5 text-blue-800 text-base">{fmtMoney(grandTotal)}</td>
+                              <td colSpan={3}></td>
+                            </tr>
+                          </tfoot>
+                        </table>
+                      </div>
+                    );
+                  })()
               }
             </div>
           )}

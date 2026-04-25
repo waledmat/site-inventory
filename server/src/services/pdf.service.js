@@ -478,35 +478,48 @@ exports.generateDeliveryNote = (issueData) => {
     doc.moveDown(0.3);
 
     // Table header
-    const cols = { no: 40, itemNo: 60, desc: 155, batch: 350, qty: 430, uom: 490 };
+    const cols = { no: 40, itemNo: 58, desc: 130, batch: 290, qty: 360, uom: 395, unitCost: 425, total: 490 };
+    const fmt2 = (n) => Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     doc.fontSize(9).font('Helvetica-Bold');
     const th = doc.y;
     doc.text('#', cols.no, th);
     doc.text('Item No.', cols.itemNo, th);
     doc.text('Description', cols.desc, th);
-    doc.text('Batch No.', cols.batch, th);
+    doc.text('Batch', cols.batch, th);
     doc.text('Qty', cols.qty, th);
     doc.text('UOM', cols.uom, th);
+    doc.text('Unit Cost', cols.unitCost, th);
+    doc.text('Total', cols.total, th);
     doc.moveDown(0.3);
     doc.moveTo(40, doc.y).lineTo(555, doc.y).stroke();
     doc.moveDown(0.2);
 
     // Table rows
     doc.font('Helvetica').fontSize(9);
+    let grandTotal = 0;
     (issueData.items || []).forEach((item, i) => {
+      const lineTotal = Number(item.total_value ?? (Number(item.quantity_issued || 0) * Number(item.unit_cost || 0)));
+      grandTotal += lineTotal;
       const ry = doc.y;
       doc.text(String(i + 1), cols.no, ry);
-      doc.text(item.item_number || '-', cols.itemNo, ry);
-      doc.text(item.description_1 + (item.description_2 ? ` / ${item.description_2}` : ''), cols.desc, ry, { width: 185 });
-      doc.text(item.batch_number || '-', cols.batch, ry, { width: 75 });
+      doc.text(item.item_number || '-', cols.itemNo, ry, { width: 65 });
+      doc.text(item.description_1 + (item.description_2 ? ` / ${item.description_2}` : ''), cols.desc, ry, { width: 155 });
+      doc.text(item.batch_number || '-', cols.batch, ry, { width: 65 });
       doc.text(String(item.quantity_issued), cols.qty, ry);
       doc.text(item.uom, cols.uom, ry);
+      doc.text(fmt2(item.unit_cost), cols.unitCost, ry);
+      doc.text(fmt2(lineTotal), cols.total, ry);
       doc.moveDown(0.7);
     });
 
-    doc.moveDown(0.5);
+    doc.moveDown(0.3);
     doc.moveTo(40, doc.y).lineTo(555, doc.y).stroke();
-    doc.moveDown(1);
+    doc.moveDown(0.3);
+    doc.font('Helvetica-Bold').fontSize(10);
+    const gtY = doc.y;
+    doc.text('GRAND TOTAL VALUE', cols.batch, gtY);
+    doc.text(fmt2(grandTotal), cols.total, gtY);
+    doc.font('Helvetica').moveDown(1);
 
     // Footer — two columns: Issued By (left) | Received By (right)
     doc.fontSize(10).font('Helvetica');

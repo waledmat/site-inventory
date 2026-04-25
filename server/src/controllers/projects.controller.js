@@ -1,4 +1,5 @@
 const db = require('../config/db');
+const { logAudit } = require('../utils/audit');
 
 exports.list = async (req, res, next) => {
   try {
@@ -14,9 +15,123 @@ exports.list = async (req, res, next) => {
            WHERE pr.user_id = $1 AND p.is_active = true ORDER BY p.name`;
       params = [req.user.id];
     } else {
-      q = 'SELECT * FROM projects WHERE is_active = true ORDER BY name';
+      q = `SELECT p.*, u.name AS pending_deletion_by_name
+             FROM projects p
+             LEFT JOIN users u ON u.id = p.pending_deletion_by
+            WHERE p.is_active = true
+            ORDER BY p.name`;
     }
     const { rows } = await db.query(q, params);
+    res.json(rows);
+  } catch (err) { next(err); }
+};
+
+// ─── deletion workflow ─────────────────────────────────────────────────────
+// Superuser/admin requests; admin approves or rejects.
+
+exports.requestDeletion = async (req, res, next) => {
+  const client = await db.connect();
+  try {
+    const { reason } = req.body;
+    await client.query('BEGIN');
+    const { rows: cur } = await client.query(
+      'SELECT id, name, is_active, pending_deletion_at FROM projects WHERE id = $1',
+      [req.params.id]
+    );
+    if (!cur[0]) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Project not found' }); }
+    if (!cur[0].is_active) { await client.query('ROLLBACK'); return res.status(400).json({ error: 'Project is already archived' }); }
+    if (cur[0].pending_deletion_at) { await client.query('ROLLBACK'); return res.status(400).json({ error: 'A deletion request is already pending for this project' }); }
+
+    const { rows } = await client.query(
+      `UPDATE projects
+          SET pending_deletion_at = NOW(),
+              pending_deletion_by = $1,
+              pending_deletion_reason = $2
+        WHERE id = $3 RETURNING *`,
+      [req.user.id, reason || null, req.params.id]
+    );
+    await logAudit(client, req.user.id, 'PROJECT_DELETION_REQUESTED', 'project', req.params.id,
+      null, { project_name: cur[0].name, reason: reason || null }
+    );
+    await client.query('COMMIT');
+    res.json(rows[0]);
+  } catch (err) { await client.query('ROLLBACK'); next(err); }
+  finally { client.release(); }
+};
+
+exports.approveDeletion = async (req, res, next) => {
+  const client = await db.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows: cur } = await client.query(
+      'SELECT id, name, pending_deletion_at, pending_deletion_by, pending_deletion_reason FROM projects WHERE id = $1',
+      [req.params.id]
+    );
+    if (!cur[0]) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Project not found' }); }
+    if (!cur[0].pending_deletion_at) { await client.query('ROLLBACK'); return res.status(400).json({ error: 'No pending deletion request for this project' }); }
+
+    const { rows } = await client.query(
+      `UPDATE projects
+          SET is_active = false,
+              pending_deletion_at = NULL,
+              pending_deletion_by = NULL,
+              pending_deletion_reason = NULL
+        WHERE id = $1 RETURNING *`,
+      [req.params.id]
+    );
+    await logAudit(client, req.user.id, 'PROJECT_DELETION_APPROVED', 'project', req.params.id,
+      { is_active: true },
+      { is_active: false, requested_by: cur[0].pending_deletion_by, reason: cur[0].pending_deletion_reason }
+    );
+    await client.query('COMMIT');
+    res.json(rows[0]);
+  } catch (err) { await client.query('ROLLBACK'); next(err); }
+  finally { client.release(); }
+};
+
+exports.rejectDeletion = async (req, res, next) => {
+  const client = await db.connect();
+  try {
+    const { rejection_reason } = req.body;
+    await client.query('BEGIN');
+    const { rows: cur } = await client.query(
+      'SELECT id, pending_deletion_at, pending_deletion_by, pending_deletion_reason FROM projects WHERE id = $1',
+      [req.params.id]
+    );
+    if (!cur[0]) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Project not found' }); }
+    if (!cur[0].pending_deletion_at) { await client.query('ROLLBACK'); return res.status(400).json({ error: 'No pending deletion request for this project' }); }
+
+    const { rows } = await client.query(
+      `UPDATE projects
+          SET pending_deletion_at = NULL,
+              pending_deletion_by = NULL,
+              pending_deletion_reason = NULL
+        WHERE id = $1 RETURNING *`,
+      [req.params.id]
+    );
+    await logAudit(client, req.user.id, 'PROJECT_DELETION_REJECTED', 'project', req.params.id,
+      { requested_by: cur[0].pending_deletion_by, reason: cur[0].pending_deletion_reason },
+      { rejection_reason: rejection_reason || null }
+    );
+    await client.query('COMMIT');
+    res.json(rows[0]);
+  } catch (err) { await client.query('ROLLBACK'); next(err); }
+  finally { client.release(); }
+};
+
+exports.listPendingDeletions = async (req, res, next) => {
+  try {
+    const { rows } = await db.query(
+      `SELECT p.id, p.name, p.project_number, p.location,
+              p.pending_deletion_at, p.pending_deletion_reason,
+              p.pending_deletion_by, u.name AS pending_deletion_by_name,
+              (SELECT COUNT(*) FROM stock_items si WHERE si.project_id = p.id) AS stock_item_count,
+              (SELECT COUNT(*) FROM material_issues mi WHERE mi.project_id = p.id) AS issue_count
+         FROM projects p
+         LEFT JOIN users u ON u.id = p.pending_deletion_by
+        WHERE p.pending_deletion_at IS NOT NULL AND p.is_active = true
+        ORDER BY p.pending_deletion_at DESC`
+    );
     res.json(rows);
   } catch (err) { next(err); }
 };
@@ -60,7 +175,9 @@ exports.get = async (req, res, next) => {
       ),
       db.query(
         `SELECT item_number, description_1, uom, category,
-                qty_on_hand, qty_issued, qty_returned, qty_pending_return, container_no
+                qty_on_hand, qty_issued, qty_returned, qty_pending_return, container_no,
+                COALESCE(unit_cost, 0) AS unit_cost,
+                (qty_on_hand * COALESCE(unit_cost, 0)) AS total_value
          FROM stock_items WHERE project_id = $1 ORDER BY item_number`, [id]
       ),
       db.query(
@@ -90,6 +207,11 @@ exports.get = async (req, res, next) => {
 exports.update = async (req, res, next) => {
   try {
     const { project_number, name, location, start_date, end_date, is_active } = req.body;
+    // Only admins may directly archive/reactivate via PUT — superusers must use the
+    // request-deletion approval flow instead.
+    if (is_active !== undefined && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Only an admin can change project active status. Use Request Deletion instead.' });
+    }
     const { rows } = await db.query(
       `UPDATE projects SET
         project_number = COALESCE($1, project_number),

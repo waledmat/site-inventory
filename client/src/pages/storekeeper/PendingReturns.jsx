@@ -141,9 +141,19 @@ export default function PendingReturns() {
 
       <QRScanner isOpen={scanning} onClose={() => setScanning(false)} onScan={handleScan} />
 
-      {filtered.length > 0 && (
-        <p className="text-xs text-gray-500 mb-3">{filtered.length} item{filtered.length !== 1 ? 's' : ''} pending return</p>
-      )}
+      {filtered.length > 0 && (() => {
+        const totalOutstanding = filtered.reduce((s, it) => s + Number(it.outstanding_value ?? (Number(it.qty_remaining || 0) * Number(it.unit_cost || 0))), 0);
+        const fmtMoney = (n) => Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        return (
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-xs text-gray-500">{filtered.length} item{filtered.length !== 1 ? 's' : ''} pending return</p>
+            <p className="text-sm">
+              <span className="text-gray-500">Total Outstanding Value: </span>
+              <span className="font-bold text-red-700">{fmtMoney(totalOutstanding)}</span>
+            </p>
+          </div>
+        );
+      })()}
 
       <TransactionHistoryModal refNumber={historyRef} onClose={() => setHistoryRef(null)} />
       {msg && <div className="mb-4 bg-green-50 border border-green-200 text-green-700 text-sm px-4 py-2 rounded-lg">{msg}</div>}
@@ -172,10 +182,14 @@ export default function PendingReturns() {
                         <span>· Issued by: {item.storekeeper_name}</span>
                         {item.receiver_name && <span>· To: {item.receiver_name}</span>}
                       </div>
-                      <div className="flex gap-4 mt-2 text-xs">
+                      <div className="flex gap-4 mt-2 text-xs flex-wrap">
                         <span>Issued: <strong>{item.quantity_issued}</strong></span>
                         <span>Returned: <strong>{item.qty_returned}</strong></span>
                         <span className="text-orange-600 font-bold">Remaining: {item.qty_remaining}</span>
+                        <span className="text-gray-500">Unit Cost: <strong className="text-gray-700">{Number(item.unit_cost || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></span>
+                        <span className="text-red-700 font-bold">
+                          Outstanding Value: {Number(item.outstanding_value ?? (Number(item.qty_remaining || 0) * Number(item.unit_cost || 0))).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </span>
                       </div>
                     </div>
                     <div className="flex gap-2 items-end flex-wrap">

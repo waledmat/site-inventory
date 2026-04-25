@@ -21,6 +21,8 @@ exports.pending = async (req, res, next) => {
       `SELECT ii.id, ii.issue_id, ii.item_number, ii.description_1, ii.uom, ii.quantity_issued,
               COALESCE((SELECT SUM(r.quantity_returned) FROM material_returns r WHERE r.issue_item_id = ii.id AND r.condition != 'lost'), 0) as qty_returned,
               ii.quantity_issued - COALESCE((SELECT SUM(r.quantity_returned) FROM material_returns r WHERE r.issue_item_id = ii.id AND r.condition != 'lost'), 0) as qty_remaining,
+              COALESCE(s.unit_cost, 0) as unit_cost,
+              (ii.quantity_issued - COALESCE((SELECT SUM(r.quantity_returned) FROM material_returns r WHERE r.issue_item_id = ii.id AND r.condition != 'lost'), 0)) * COALESCE(s.unit_cost, 0) as outstanding_value,
               i.issue_date, i.delivery_note_id, i.project_id,
               p.name as project_name,
               sk.name as storekeeper_name, sk.id as storekeeper_user_id,
@@ -30,6 +32,7 @@ exports.pending = async (req, res, next) => {
        JOIN projects p ON p.id = i.project_id
        JOIN users sk ON sk.id = i.storekeeper_id
        LEFT JOIN users rc ON rc.id = i.receiver_id
+       LEFT JOIN stock_items s ON s.id = ii.stock_item_id
        WHERE ${where.join(' AND ')}
        ORDER BY i.issue_date ASC`,
       params
@@ -47,12 +50,15 @@ exports.list = async (req, res, next) => {
     if (date_to) { params.push(date_to); where.push(`r.return_date <= $${params.length}`); }
     const whereClause = where.length ? 'WHERE ' + where.join(' AND ') : '';
     const { rows } = await db.query(
-      `SELECT r.*, r.return_number, ii.description_1, ii.uom, i.delivery_note_id, p.name as project_name, lb.name as logged_by_name
+      `SELECT r.*, r.return_number, ii.description_1, ii.uom, i.delivery_note_id, p.name as project_name, lb.name as logged_by_name,
+              COALESCE(s.unit_cost, 0) as unit_cost,
+              (r.quantity_returned * COALESCE(s.unit_cost, 0)) as total_value
        FROM material_returns r
        JOIN issue_items ii ON ii.id = r.issue_item_id
        JOIN material_issues i ON i.id = ii.issue_id
        JOIN projects p ON p.id = r.project_id
        JOIN users lb ON lb.id = r.logged_by
+       LEFT JOIN stock_items s ON s.id = ii.stock_item_id
        ${whereClause} ORDER BY r.return_date DESC`,
       params
     );

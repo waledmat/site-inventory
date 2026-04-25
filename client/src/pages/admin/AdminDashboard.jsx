@@ -21,6 +21,11 @@ export default function AdminDashboard() {
   const [kpis, setKpis] = useState(null);
   const [lowStock, setLowStock] = useState([]);
   const [modal, setModal] = useState(null); // { key, title, columns, rows, loading }
+  const [pendingDeletions, setPendingDeletions] = useState([]);
+  const [delActing, setDelActing] = useState(null); // project id currently being approved/rejected
+
+  const loadPendingDeletions = () =>
+    api.get('/projects/pending-deletions').then(r => setPendingDeletions(r.data)).catch(() => {});
 
   useEffect(() => {
     api.get('/users').then(r => setUsers(r.data)).catch(() => {});
@@ -28,7 +33,35 @@ export default function AdminDashboard() {
     api.get('/reports/summary').then(r => setSummary(r.data)).catch(() => {});
     api.get('/reports/kpis').then(r => setKpis(r.data)).catch(() => {});
     api.get('/stock/low-stock').then(r => setLowStock(r.data)).catch(() => {});
+    loadPendingDeletions();
   }, []);
+
+  const approveDeletion = async (p) => {
+    if (!window.confirm(
+      `Approve deletion of "${p.name}"?\n\n` +
+      `This project has ${p.stock_item_count} stock item(s) and ${p.issue_count} issue record(s). ` +
+      `Approving will archive the project (is_active=false). Records are preserved.`
+    )) return;
+    setDelActing(p.id);
+    try {
+      await api.post(`/projects/${p.id}/approve-deletion`);
+      await loadPendingDeletions();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to approve');
+    } finally { setDelActing(null); }
+  };
+
+  const rejectDeletion = async (p) => {
+    const reason = window.prompt(`Reject deletion request for "${p.name}"?\n\nReason (optional):`, '');
+    if (reason === null) return;
+    setDelActing(p.id);
+    try {
+      await api.post(`/projects/${p.id}/reject-deletion`, { rejection_reason: reason.trim() || null });
+      await loadPendingDeletions();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Failed to reject');
+    } finally { setDelActing(null); }
+  };
 
   async function openModal(key) {
     if (key === 'low_stock') {
@@ -116,6 +149,49 @@ export default function AdminDashboard() {
           <StatCard title="Low Stock Items"   value={kpis.low_stock_count}      icon="⚠️" color={kpis.low_stock_count > 0 ? 'red' : 'gray'}    onClick={() => openModal('low_stock')} />
           <StatCard title="Requests (7 days)" value={kpis.requests_last_7_days} icon="📅" color="gray"                                          onClick={() => openModal('requests_7d')} />
           <StatCard title="Rejection Rate"    value={`${kpis.rejection_rate ?? 0}%`} icon="🚫" color={kpis.rejection_rate > 20 ? 'red' : kpis.rejection_rate > 10 ? 'yellow' : 'gray'} />
+        </div>
+      )}
+
+      {/* Pending project deletions — admin approval queue */}
+      {pendingDeletions.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-semibold text-amber-800">
+              ⏳ Pending Project Deletion Requests
+              <span className="ml-2 text-sm font-normal text-amber-700">({pendingDeletions.length})</span>
+            </h3>
+          </div>
+          <div className="space-y-2">
+            {pendingDeletions.map(p => (
+              <div key={p.id} className="bg-white border border-amber-200 rounded-lg p-3 flex flex-wrap gap-3 items-center">
+                <div className="flex-1 min-w-[240px]">
+                  <div className="font-semibold text-gray-800">
+                    {p.project_number ? <span className="text-xs text-gray-500 mr-1">[{p.project_number}]</span> : null}
+                    {p.name}
+                  </div>
+                  <div className="text-xs text-gray-500 mt-0.5">
+                    Requested by <strong>{p.pending_deletion_by_name || 'unknown'}</strong> on {new Date(p.pending_deletion_at).toLocaleString()}
+                  </div>
+                  {p.pending_deletion_reason && (
+                    <div className="text-xs text-gray-600 mt-1 italic">"{p.pending_deletion_reason}"</div>
+                  )}
+                  <div className="text-xs text-gray-500 mt-1">
+                    {p.stock_item_count} stock item(s) · {p.issue_count} issue record(s) — will be preserved on archive
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => approveDeletion(p)} disabled={delActing === p.id}
+                    className="bg-red-600 text-white text-sm px-3 py-1.5 rounded-lg hover:bg-red-700 font-medium disabled:opacity-50">
+                    {delActing === p.id ? '…' : '✓ Approve'}
+                  </button>
+                  <button onClick={() => rejectDeletion(p)} disabled={delActing === p.id}
+                    className="border text-sm px-3 py-1.5 rounded-lg hover:bg-gray-50 font-medium disabled:opacity-50">
+                    ✕ Reject
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
