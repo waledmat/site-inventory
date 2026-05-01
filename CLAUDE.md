@@ -119,12 +119,12 @@ Other accounts (password: `Pass@1234`):
 4. Returns tracked in `material_returns`
 
 **Stock Upload:**
-- Superuser uploads `.xlsx` packing list via `/superuser/upload`
-- `excel.service.js` parses and matches project by name/number (fuzzy match)
-- Confirm step upserts into `stock_items` via `ON CONFLICT (project_id, item_number)`
+- Superuser picks a project from the dropdown, then uploads `.xlsx` packing list via `/superuser/upload`
+- The selected `project_id` is sent alongside the file — it is required (the file no longer carries project info)
+- Confirm step upserts into `stock_items` via `ON CONFLICT (project_id, item_number)`. Re-imports only touch the columns below; existing `qty_issued`, `qty_returned`, `qty_pending_return` are preserved so issue/return state isn't wiped.
 
-Expected Excel column headers (exact match):
-`PROJECT NAME`, `Y3#`, `CATEGORY`, `ITEM NUMBER`, `ITEM DESCRIPTION`, `DESCRIPTION LINE 2`, `UOM`, `Project Onhand`, `Container No.`, `Issued Quantity`, `ID issued by`, `Received By`, `Returned Quantity`, `Pending Return QTY`
+Expected Excel column headers (exact match, 9 columns, sheet name "Packing List"):
+`Y3#`, `ITEM NUMBER`, `ITEM DESCRIPTION`, `DESCRIPTION LINE 2`, `CATEGORY`, `UOM`, `unit cost`, `Project Onhand`, `Container No.`
 
 ## Common Issues
 

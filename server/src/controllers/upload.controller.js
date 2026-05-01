@@ -6,6 +6,9 @@ exports.validate = async (req, res, next) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
     const overrideProjectId = req.body.project_id || null;
+    if (!overrideProjectId) {
+      return res.status(400).json({ error: 'Please select a project before uploading.' });
+    }
     const result = await excelService.parsePackingList(req.file.buffer, overrideProjectId);
     res.json(result);
   } catch (err) { next(err); }
@@ -45,28 +48,19 @@ exports.history = async (req, res, next) => {
 
 exports.template = (req, res) => {
   const headers = [
-    'PROJECT NAME', 'PROJECT NUMBER', 'Y3#', 'CATEGORY',
-    'ITEM NUMBER', 'ITEM DESCRIPTION', 'DESCRIPTION LINE 2', 'UOM',
-    'Project Onhand', 'Container No.', 'Issued Quantity',
-    'Returned Quantity', 'Pending Return QTY'
+    'Y3#', 'ITEM NUMBER', 'ITEM DESCRIPTION', 'DESCRIPTION LINE 2',
+    'CATEGORY', 'UOM', 'unit cost', 'Project Onhand', 'Container No.'
   ];
 
   const sampleRows = [
-    [
-      'Jeddah Coastal Highway', 'PRJ-001', 'Y3-1001', 'CH',
-      'CH-001', 'Steel Pipe 2 inch', 'ASTM A53 Grade B', 'PCS',
-      100, 'CONT-001', 10, 5, 5
-    ],
-    [
-      'Jeddah Coastal Highway', 'PRJ-001', 'Y3-1002', 'SPARE',
-      'SP-001', 'Bearing 6205', 'Deep Groove Ball Bearing', 'PCS',
-      50, '', 0, 0, 0
-    ],
+    ['Y3-1001', 'CH-001', 'Steel Pipe 2 inch',  'ASTM A53 Grade B',         'CH',    'PCS', 10, 100, 'CONT-001'],
+    ['Y3-1002', 'SP-001', 'Bearing 6205',       'Deep Groove Ball Bearing', 'SPARE', 'PCS',  0,  50, ''],
   ];
 
+  const widths = [10, 14, 30, 28, 10, 6, 10, 14, 14];
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.aoa_to_sheet([headers, ...sampleRows]);
-  ws['!cols'] = headers.map((h, i) => ({ wch: [20,15,10,10,12,30,25,6,12,12,14,16,16][i] || 15 }));
+  ws['!cols'] = headers.map((_, i) => ({ wch: widths[i] || 15 }));
   XLSX.utils.book_append_sheet(wb, ws, 'Packing List');
 
   const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });

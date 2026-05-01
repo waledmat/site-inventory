@@ -1,6 +1,7 @@
 const db = require('../config/db');
 const XLSX = require('xlsx');
 const PDFDocument = require('pdfkit');
+const dailyReportService = require('../services/dailyReport.service');
 
 const TODAY = () => new Date().toISOString().slice(0, 10);
 
@@ -190,18 +191,59 @@ exports.summary = async (req, res, next) => {
 exports.dailyLog = async (req, res, next) => {
   try {
     const { format, project_id, date_from, date_to } = req.query;
-    let where = [], params = [];
-    if (project_id) { params.push(project_id); where.push(`dr.project_id = $${params.length}`); }
-    if (date_from) { params.push(date_from); where.push(`dr.report_date >= $${params.length}`); }
-    if (date_to) { params.push(date_to); where.push(`dr.report_date <= $${params.length}`); }
-    const wc = where.length ? 'WHERE ' + where.join(' AND ') : '';
+
+    // Compute per-(project, date) activity on the fly so the page reflects
+    // today's issues/returns even if the cron hasn't fired yet. LEFT JOIN
+    // daily_reports for the persisted sent_at when an email actually went out.
+    // $1 = project_id (or NULL), $2 = date_from (or NULL), $3 = date_to (or NULL)
+    const params = [project_id || null, date_from || null, date_to || null];
 
     const { rows } = await db.query(
-      `SELECT dr.report_date, p.name as project_name,
-              dr.issued_count, dr.returned_count, dr.pending_count, dr.overdue_count, dr.sent_at
-       FROM daily_reports dr
-       LEFT JOIN projects p ON p.id = dr.project_id
-       ${wc} ORDER BY dr.report_date DESC LIMIT 100`,
+      `WITH activity AS (
+         SELECT mi.project_id, mi.issue_date AS report_date,
+                COUNT(*)::int AS issued_count, 0 AS returned_count
+         FROM material_issues mi
+         WHERE ($1::uuid IS NULL OR mi.project_id  = $1::uuid)
+           AND ($2::date IS NULL OR mi.issue_date >= $2::date)
+           AND ($3::date IS NULL OR mi.issue_date <= $3::date)
+         GROUP BY mi.project_id, mi.issue_date
+         UNION ALL
+         SELECT mr.project_id, mr.return_date AS report_date,
+                0 AS issued_count, COUNT(*)::int AS returned_count
+         FROM material_returns mr
+         WHERE ($1::uuid IS NULL OR mr.project_id   = $1::uuid)
+           AND ($2::date IS NULL OR mr.return_date >= $2::date)
+           AND ($3::date IS NULL OR mr.return_date <= $3::date)
+         GROUP BY mr.project_id, mr.return_date
+       ),
+       daily AS (
+         SELECT project_id, report_date,
+                SUM(issued_count)::int   AS issued_count,
+                SUM(returned_count)::int AS returned_count
+         FROM activity
+         GROUP BY project_id, report_date
+       ),
+       pending AS (
+         SELECT i.project_id, COUNT(*)::int AS pending_count
+         FROM issue_items ii
+         JOIN material_issues i ON i.id = ii.issue_id
+         WHERE ii.quantity_issued > COALESCE(
+           (SELECT SUM(r.quantity_returned) FROM material_returns r WHERE r.issue_item_id = ii.id), 0)
+         GROUP BY i.project_id
+       )
+       SELECT d.report_date,
+              p.name AS project_name,
+              d.issued_count,
+              d.returned_count,
+              COALESCE(pe.pending_count, 0) AS pending_count,
+              0 AS overdue_count,
+              dr.sent_at
+       FROM daily d
+       LEFT JOIN projects p       ON p.id = d.project_id
+       LEFT JOIN pending pe       ON pe.project_id = d.project_id
+       LEFT JOIN daily_reports dr ON dr.project_id = d.project_id AND dr.report_date = d.report_date
+       ORDER BY d.report_date DESC, p.name
+       LIMIT 200`,
       params
     );
 
@@ -258,6 +300,18 @@ exports.dailyLog = async (req, res, next) => {
     }
 
     res.json(rows);
+  } catch (err) { next(err); }
+};
+
+// Manually trigger the daily-report job for today (or a chosen date) and
+// optionally email the recipients. Used by the "Run Now" button on the
+// Daily Report Log page so users don't have to wait for the cron.
+exports.runDailyReport = async (req, res, next) => {
+  try {
+    const date = (req.body?.date || req.query.date || TODAY()).slice(0, 10);
+    const sendEmail = req.body?.send_email === true || req.query.send_email === 'true';
+    const summary = await dailyReportService.generate({ date, sendEmail });
+    res.json(summary);
   } catch (err) { next(err); }
 };
 
@@ -624,6 +678,308 @@ exports.consumption = async (req, res, next) => {
     }
 
     res.json({ items, totals, categories });
+  } catch (err) { next(err); }
+};
+
+// ─── project cost report (issued / returned / pending × cost, all categories) ──
+//
+// "Pending" = issued − returned (clamped at 0). For DC/SPARE this is the project
+// material spend (consumed); for CH (chargeable assets) it's items still owed
+// back to the warehouse. Same calculation, different business meaning.
+exports.projectCost = async (req, res, next) => {
+  try {
+    const { project_id, date_from, date_to, format, view } = req.query;
+    const params = [project_id || null, date_from || null, date_to || null];
+
+    // Per-issue / per-return transaction export — one row per issue_item or per return.
+    if (format === 'excel-transactions') {
+      const { rows: issues } = await db.query(
+        `SELECT p.name           AS project_name,
+                mi.issue_date,
+                mi.delivery_note_id,
+                ii.item_number,
+                COALESCE(s.description_1, ii.description_1) AS description_1,
+                COALESCE(s.description_2, ii.description_2) AS description_2,
+                s.category,
+                ii.uom,
+                COALESCE(s.unit_cost, 0)                  AS unit_cost,
+                ii.quantity_issued,
+                (ii.quantity_issued * COALESCE(s.unit_cost, 0)) AS issued_value,
+                s.y3_number,
+                s.container_no,
+                sk.name           AS storekeeper,
+                rcv.name          AS receiver,
+                req.name          AS requester
+         FROM material_issues mi
+         JOIN projects   p   ON p.id = mi.project_id
+         JOIN issue_items ii ON ii.issue_id = mi.id
+         LEFT JOIN stock_items s ON s.id = ii.stock_item_id
+         LEFT JOIN users sk  ON sk.id = mi.storekeeper_id
+         LEFT JOIN users rcv ON rcv.id = mi.receiver_id
+         LEFT JOIN material_requests mr ON mr.id = mi.request_id
+         LEFT JOIN users req ON req.id = mr.requester_id
+         WHERE ($1::uuid IS NULL OR mi.project_id  = $1::uuid)
+           AND ($2::date IS NULL OR mi.issue_date >= $2::date)
+           AND ($3::date IS NULL OR mi.issue_date <= $3::date)
+         ORDER BY mi.issue_date DESC, p.name, ii.item_number`,
+        params
+      );
+
+      const { rows: returns } = await db.query(
+        `SELECT p.name           AS project_name,
+                r.return_date,
+                ii.item_number,
+                COALESCE(s.description_1, ii.description_1) AS description_1,
+                s.category,
+                ii.uom,
+                COALESCE(s.unit_cost, 0)                  AS unit_cost,
+                r.quantity_returned,
+                (r.quantity_returned * COALESCE(s.unit_cost, 0)) AS returned_value,
+                r.condition,
+                r.notes,
+                lb.name           AS logged_by,
+                mi.delivery_note_id
+         FROM material_returns r
+         JOIN projects p   ON p.id = r.project_id
+         JOIN issue_items ii ON ii.id = r.issue_item_id
+         JOIN material_issues mi ON mi.id = ii.issue_id
+         LEFT JOIN stock_items s ON s.id = ii.stock_item_id
+         LEFT JOIN users lb ON lb.id = r.logged_by
+         WHERE ($1::uuid IS NULL OR r.project_id   = $1::uuid)
+           AND ($2::date IS NULL OR r.return_date >= $2::date)
+           AND ($3::date IS NULL OR r.return_date <= $3::date)
+         ORDER BY r.return_date DESC, p.name, ii.item_number`,
+        params
+      );
+
+      const num = (n) => Number((Number(n) || 0).toFixed(2));
+
+      const issueSheet = issues.map(r => ({
+        'Project':          r.project_name,
+        'Issue Date':       r.issue_date,
+        'Delivery Note':    r.delivery_note_id || '',
+        'Category':         r.category || '',
+        'Item No.':         r.item_number || '',
+        'Description':      r.description_1 || '',
+        'Description 2':    r.description_2 || '',
+        'UOM':              r.uom || '',
+        'Y3#':              r.y3_number || '',
+        'Container':        r.container_no || '',
+        'Unit Cost':        num(r.unit_cost),
+        'Qty Issued':       Number(r.quantity_issued),
+        'Issued Value':     num(r.issued_value),
+        'Storekeeper':      r.storekeeper || '',
+        'Receiver':         r.receiver || '',
+        'Requester':        r.requester || '',
+      }));
+
+      const returnSheet = returns.map(r => ({
+        'Project':          r.project_name,
+        'Return Date':      r.return_date,
+        'Delivery Note':    r.delivery_note_id || '',
+        'Category':         r.category || '',
+        'Item No.':         r.item_number || '',
+        'Description':      r.description_1 || '',
+        'UOM':              r.uom || '',
+        'Unit Cost':        num(r.unit_cost),
+        'Qty Returned':     Number(r.quantity_returned),
+        'Returned Value':   num(r.returned_value),
+        'Condition':        r.condition || '',
+        'Notes':            r.notes || '',
+        'Logged By':        r.logged_by || '',
+      }));
+
+      return sendExcel(res, `project-cost-transactions-${TODAY()}.xlsx`, [
+        { name: 'Issues',  data: issueSheet },
+        { name: 'Returns', data: returnSheet },
+      ]);
+    }
+
+    // Per-item rollup: issued and returned aggregated by (project, category, stock_item)
+    const { rows: items } = await db.query(
+      `WITH issued AS (
+         SELECT mi.project_id, ii.stock_item_id,
+                SUM(ii.quantity_issued)                            AS qty,
+                SUM(ii.quantity_issued * COALESCE(s.unit_cost, 0)) AS value
+         FROM material_issues mi
+         JOIN issue_items ii ON ii.issue_id = mi.id
+         LEFT JOIN stock_items s ON s.id = ii.stock_item_id
+         WHERE ($1::uuid IS NULL OR mi.project_id  = $1::uuid)
+           AND ($2::date IS NULL OR mi.issue_date >= $2::date)
+           AND ($3::date IS NULL OR mi.issue_date <= $3::date)
+         GROUP BY mi.project_id, ii.stock_item_id
+       ),
+       returned AS (
+         SELECT mr.project_id, ii.stock_item_id,
+                SUM(mr.quantity_returned)                            AS qty,
+                SUM(mr.quantity_returned * COALESCE(s.unit_cost, 0)) AS value
+         FROM material_returns mr
+         JOIN issue_items ii ON ii.id = mr.issue_item_id
+         LEFT JOIN stock_items s ON s.id = ii.stock_item_id
+         WHERE ($1::uuid IS NULL OR mr.project_id   = $1::uuid)
+           AND ($2::date IS NULL OR mr.return_date >= $2::date)
+           AND ($3::date IS NULL OR mr.return_date <= $3::date)
+         GROUP BY mr.project_id, ii.stock_item_id
+       )
+       SELECT p.id           AS project_id,
+              p.name         AS project_name,
+              s.id           AS stock_item_id,
+              s.item_number,
+              s.description_1,
+              s.description_2,
+              s.uom,
+              s.category,
+              COALESCE(s.unit_cost, 0) AS unit_cost,
+              COALESCE(i.qty,   0) AS qty_issued,
+              COALESCE(i.value, 0) AS value_issued,
+              COALESCE(r.qty,   0) AS qty_returned,
+              COALESCE(r.value, 0) AS value_returned
+       FROM (SELECT project_id, stock_item_id FROM issued
+             UNION
+             SELECT project_id, stock_item_id FROM returned) k
+       JOIN projects    p ON p.id = k.project_id
+       LEFT JOIN stock_items s ON s.id = k.stock_item_id
+       LEFT JOIN issued   i ON i.project_id = k.project_id AND i.stock_item_id IS NOT DISTINCT FROM k.stock_item_id
+       LEFT JOIN returned r ON r.project_id = k.project_id AND r.stock_item_id IS NOT DISTINCT FROM k.stock_item_id
+       WHERE s.category IS NOT NULL
+       ORDER BY p.name, s.category, s.item_number`,
+      params
+    );
+
+    const emptyCat = () => ({
+      qty_issued: 0, value_issued: 0,
+      qty_returned: 0, value_returned: 0,
+      qty_pending: 0, value_pending: 0,
+    });
+
+    const projectsMap = new Map();
+    const grand = emptyCat();
+
+    for (const row of items) {
+      const qIss = Number(row.qty_issued)   || 0;
+      const vIss = Number(row.value_issued) || 0;
+      const qRet = Number(row.qty_returned) || 0;
+      const vRet = Number(row.value_returned) || 0;
+      // Only Chargeable (CH) items are owed back to the warehouse.
+      // For DC and SPARE the difference is "consumed in project", not pending — so we don't count it as pending.
+      const isPending = row.category === 'CH';
+      const qPen = isPending ? Math.max(0, qIss - qRet) : 0;
+      const vPen = isPending ? Math.max(0, vIss - vRet) : 0;
+
+      let proj = projectsMap.get(row.project_id);
+      if (!proj) {
+        proj = {
+          project_id: row.project_id,
+          project_name: row.project_name,
+          categories: { SPARE: emptyCat(), DC: emptyCat(), CH: emptyCat() },
+          items: [],
+          totals: emptyCat(),
+        };
+        projectsMap.set(row.project_id, proj);
+      }
+
+      proj.items.push({
+        stock_item_id: row.stock_item_id,
+        item_number:   row.item_number,
+        description_1: row.description_1,
+        description_2: row.description_2,
+        uom:           row.uom,
+        category:      row.category,
+        unit_cost:     Number(row.unit_cost) || 0,
+        qty_issued:    qIss, value_issued:   vIss,
+        qty_returned:  qRet, value_returned: vRet,
+        qty_pending:   qPen, value_pending:  vPen,
+      });
+
+      const c = proj.categories[row.category] || emptyCat();
+      c.qty_issued    += qIss; c.value_issued    += vIss;
+      c.qty_returned  += qRet; c.value_returned  += vRet;
+      c.qty_pending   += qPen; c.value_pending   += vPen;
+      proj.categories[row.category] = c;
+
+      proj.totals.qty_issued    += qIss; proj.totals.value_issued    += vIss;
+      proj.totals.qty_returned  += qRet; proj.totals.value_returned  += vRet;
+      proj.totals.qty_pending   += qPen; proj.totals.value_pending   += vPen;
+
+      grand.qty_issued    += qIss; grand.value_issued    += vIss;
+      grand.qty_returned  += qRet; grand.value_returned  += vRet;
+      grand.qty_pending   += qPen; grand.value_pending   += vPen;
+    }
+
+    const by_project = Array.from(projectsMap.values());
+
+    if (format === 'excel') {
+      const summary = [];
+      const detail = [];
+      const num = (n) => Number((Number(n) || 0).toFixed(2));
+
+      const penQty = (cat, q) => cat === 'CH' ? q : '';
+      const penVal = (cat, v) => cat === 'CH' ? num(v) : '';
+
+      for (const proj of by_project) {
+        for (const cat of ['CH', 'SPARE', 'DC']) {
+          const c = proj.categories[cat];
+          if (!c || (c.qty_issued === 0 && c.qty_returned === 0)) continue;
+          summary.push({
+            'Project':        proj.project_name,
+            'Category':       cat,
+            'Qty Issued':     c.qty_issued,
+            'Issued Value':   num(c.value_issued),
+            'Qty Returned':   c.qty_returned,
+            'Returned Value': num(c.value_returned),
+            'Qty Pending':    penQty(cat, c.qty_pending),
+            'Pending Value':  penVal(cat, c.value_pending),
+          });
+        }
+        summary.push({
+          'Project':        proj.project_name,
+          'Category':       'TOTAL',
+          'Qty Issued':     proj.totals.qty_issued,
+          'Issued Value':   num(proj.totals.value_issued),
+          'Qty Returned':   proj.totals.qty_returned,
+          'Returned Value': num(proj.totals.value_returned),
+          'Qty Pending':    proj.totals.qty_pending,
+          'Pending Value':  num(proj.totals.value_pending),
+        });
+
+        for (const it of proj.items) {
+          detail.push({
+            'Project':        proj.project_name,
+            'Category':       it.category,
+            'Item No.':       it.item_number || '',
+            'Description':    it.description_1 || '',
+            'Description 2':  it.description_2 || '',
+            'UOM':            it.uom || '',
+            'Unit Cost':      num(it.unit_cost),
+            'Qty Issued':     it.qty_issued,
+            'Issued Value':   num(it.value_issued),
+            'Qty Returned':   it.qty_returned,
+            'Returned Value': num(it.value_returned),
+            'Qty Pending':    penQty(it.category, it.qty_pending),
+            'Pending Value':  penVal(it.category, it.value_pending),
+          });
+        }
+      }
+
+      summary.push({
+        'Project':        'GRAND TOTAL',
+        'Category':       '',
+        'Qty Issued':     grand.qty_issued,
+        'Issued Value':   num(grand.value_issued),
+        'Qty Returned':   grand.qty_returned,
+        'Returned Value': num(grand.value_returned),
+        'Qty Pending':    grand.qty_pending,
+        'Pending Value':  num(grand.value_pending),
+      });
+
+      const sheets = view === 'summary' ? [{ name: 'Summary', data: summary }]
+                   : view === 'detail'  ? [{ name: 'Item Detail', data: detail }]
+                   : [{ name: 'Summary', data: summary }, { name: 'Item Detail', data: detail }];
+      const tag = view === 'summary' ? '-summary' : view === 'detail' ? '-detail' : '';
+      return sendExcel(res, `project-cost${tag}-${TODAY()}.xlsx`, sheets);
+    }
+
+    res.json({ by_project, grand_total: grand });
   } catch (err) { next(err); }
 };
 

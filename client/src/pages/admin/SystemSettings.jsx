@@ -2,43 +2,27 @@ import { useEffect, useState } from 'react';
 import api from '../../utils/axiosInstance';
 
 const BUILT_IN_COLUMNS = [
-  ['item_number',           'Item Number'],
-  ['description_1',         'Item Description'],
-  ['description_2',         'Description Line 2'],
-  ['uom',                   'UOM'],
-  ['project_number',        'Project Number'],
-  ['project_name',          'Project Name'],
-  ['y3_number',             'Y3 / WBS #'],
-  ['category',              'Category'],
-  ['qty_requested',         'Qty Requested'],
-  ['qty_on_hand',           'Qty On Hand'],
-  ['qty_pending_warehouse', 'Qty Pending (Warehouse)'],
-  ['container_no',          'Container No.'],
-  ['qty_issued',            'Issued Quantity'],
-  ['issued_by_id',          'ID Issued By'],
-  ['received_by_id',        'Received By'],
-  ['qty_returned',          'Returned Quantity'],
-  ['qty_pending_return',    'Pending Return QTY'],
+  ['y3_number',     'Y3 / WBS #'],
+  ['item_number',   'Item Number'],
+  ['description_1', 'Item Description'],
+  ['description_2', 'Description Line 2'],
+  ['category',      'Category'],
+  ['uom',           'UOM'],
+  ['unit_cost',     'Unit Cost'],
+  ['qty_on_hand',   'Project Onhand'],
+  ['container_no',  'Container No.'],
 ];
 
 const DEFAULT_HEADERS = {
-  item_number:           'ITEM NUMBER',
-  description_1:         'ITEM DESCRIPTION',
-  description_2:         'DESCRIPTION LINE 2',
-  uom:                   'UOM',
-  project_number:        'PROJECT NUMBER',
-  project_name:          'PROJECT NAME',
-  y3_number:             'Y3#',
-  category:              'CATEGORY',
-  qty_requested:         'project requested',
-  qty_on_hand:           'Project Onhand',
-  qty_pending_warehouse: 'BALANCE',
-  container_no:          'Container No.',
-  qty_issued:            'Issued Quantity',
-  issued_by_id:          'ID issued by',
-  received_by_id:        'Received By',
-  qty_returned:          'Returned Quantity',
-  qty_pending_return:    'Pending Return QTY',
+  y3_number:     'Y3#',
+  item_number:   'ITEM NUMBER',
+  description_1: 'ITEM DESCRIPTION',
+  description_2: 'DESCRIPTION LINE 2',
+  category:      'CATEGORY',
+  uom:           'UOM',
+  unit_cost:     'unit cost',
+  qty_on_hand:   'Project Onhand',
+  container_no:  'Container No.',
 };
 
 function buildDefaultCols() {
@@ -49,12 +33,19 @@ function buildDefaultCols() {
   return result;
 }
 
+// Fields removed from the simplified template — drop them from any legacy saved config
+const LEGACY_FIELDS = new Set([
+  'project_number', 'project_name', 'qty_requested', 'qty_pending_warehouse',
+  'qty_issued', 'issued_by_id', 'received_by_id', 'qty_returned', 'qty_pending_return',
+]);
+
 function parseSaved(raw) {
   try {
     const parsed = JSON.parse(raw);
     // Support old string format {"field":"header"} and new object format {"field":{header,enabled}}
     const result = buildDefaultCols();
     Object.entries(parsed).forEach(([field, val]) => {
+      if (LEGACY_FIELDS.has(field)) return;
       if (typeof val === 'string') {
         result[field] = { ...(result[field] || {}), header: val, enabled: true };
       } else if (val && typeof val === 'object') {

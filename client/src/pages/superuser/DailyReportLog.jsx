@@ -6,6 +6,8 @@ export default function DailyReportLog() {
   const [logs, setLogs] = useState([]);
   const [projects, setProjects] = useState([]);
   const [filters, setFilters] = useState({ project_id: '', date_from: '', date_to: '' });
+  const [running, setRunning] = useState(false);
+  const [runMsg, setRunMsg] = useState(null);
 
   const load = (f = filters) => {
     const params = new URLSearchParams();
@@ -25,6 +27,18 @@ export default function DailyReportLog() {
     setFilters(empty); load(empty);
   };
 
+  const runNow = async () => {
+    if (!window.confirm('Generate today’s daily report and email recipients?')) return;
+    setRunning(true); setRunMsg(null);
+    try {
+      const { data } = await api.post('/reports/daily-log/run-now', { send_email: true });
+      setRunMsg({ type: 'success', text: `Generated for ${data.processed} project${data.processed === 1 ? '' : 's'} (${data.skipped} skipped — no activity).` });
+      load();
+    } catch (err) {
+      setRunMsg({ type: 'error', text: err.response?.data?.error || 'Failed to run daily report.' });
+    } finally { setRunning(false); }
+  };
+
   const hasFilters = Object.values(filters).some(Boolean);
 
   const cols = [
@@ -39,7 +53,19 @@ export default function DailyReportLog() {
 
   return (
     <div>
-      <h2 className="text-2xl font-bold text-gray-800 mb-6">Daily Report Log</h2>
+      <div className="flex items-start justify-between mb-6">
+        <h2 className="text-2xl font-bold text-gray-800">Daily Report Log</h2>
+        <button onClick={runNow} disabled={running}
+          className="bg-purple-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-purple-700 disabled:opacity-50">
+          {running ? 'Running…' : '▶ Run Now'}
+        </button>
+      </div>
+
+      {runMsg && (
+        <p className={`mb-4 text-sm px-3 py-2 rounded-lg ${runMsg.type === 'success' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'}`}>
+          {runMsg.text}
+        </p>
+      )}
 
       <div className="bg-white rounded-xl border p-4 mb-5 flex flex-wrap gap-3 items-end">
         <div>

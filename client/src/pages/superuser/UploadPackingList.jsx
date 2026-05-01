@@ -144,11 +144,15 @@ export default function UploadPackingList() {
 
   const upload = async () => {
     if (!file) return;
+    if (!selectedProject) {
+      setUploadError('Please select a project before uploading.');
+      return;
+    }
     setLoading(true); setResult(null); setUploadError('');
     try {
       const fd = new FormData();
       fd.append('file', file);
-      if (selectedProject) fd.append('project_id', selectedProject);
+      fd.append('project_id', selectedProject);
       const { data } = await api.post('/upload/packing-list', fd);
       setResult(data);
     } catch (err) {
@@ -211,12 +215,12 @@ export default function UploadPackingList() {
       <div className="bg-white rounded-xl border p-6 space-y-4">
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
-            Select Project <span className="text-gray-400 font-normal">(optional — overrides project column in file)</span>
+            Select Project <span className="text-red-500">*</span>
           </label>
           <div className="flex gap-2">
             <select value={selectedProject} onChange={e => setSelectedProject(e.target.value)}
               className="flex-1 border rounded-lg px-3 py-2 text-sm">
-              <option value="">— Use project from file —</option>
+              <option value="">— Select a project —</option>
               {projects.map(p => (
                 <option key={p.id} value={p.id}>
                   {p.project_number ? `[${p.project_number}] ` : ''}{p.name}
@@ -300,7 +304,7 @@ export default function UploadPackingList() {
           <p className="text-xs text-gray-400 mt-1">Accepts .xlsx files only</p>
         </div>
 
-        <button onClick={upload} disabled={!file || loading}
+        <button onClick={upload} disabled={!file || !selectedProject || loading}
           className="bg-blue-600 text-white px-6 py-2.5 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
           {loading ? 'Validating…' : '🔍 Validate File'}
         </button>
@@ -355,7 +359,7 @@ export default function UploadPackingList() {
                 <div className="overflow-x-auto rounded-xl border border-green-200 max-h-72 overflow-y-auto">
                   <table className="min-w-full text-xs">
                     <thead className="bg-green-50 sticky top-0"><tr>
-                      {['PROJECT NAME','Y3#','CATEGORY','ITEM NUMBER','ITEM DESCRIPTION','DESCRIPTION LINE 2','UOM','Project Onhand','Unit Cost','Total Value','Container No.','Issued Quantity','ID issued by','Received By','Returned Quantity','Pending Return QTY'].map(h => (
+                      {['Y3#','ITEM NUMBER','ITEM DESCRIPTION','DESCRIPTION LINE 2','CATEGORY','UOM','Unit Cost','Project Onhand','Total Value','Container No.'].map(h => (
                         <th key={h} className="px-3 py-2 text-left whitespace-nowrap font-semibold border-b">{h}</th>
                       ))}
                     </tr></thead>
@@ -363,22 +367,16 @@ export default function UploadPackingList() {
                       const total = Number(r.qty_on_hand || 0) * Number(r.unit_cost || 0);
                       return (
                         <tr key={i} className="border-t border-green-100 hover:bg-green-50/50">
-                          <td className="px-3 py-2 whitespace-nowrap">{r.project_name || '—'}</td>
                           <td className="px-3 py-2 whitespace-nowrap">{r.y3_number || '—'}</td>
-                          <td className="px-3 py-2">{r.category || '—'}</td>
                           <td className="px-3 py-2 font-mono whitespace-nowrap">{r.item_number || '—'}</td>
                           <td className="px-3 py-2">{r.description_1}</td>
                           <td className="px-3 py-2">{r.description_2 || '—'}</td>
+                          <td className="px-3 py-2">{r.category || '—'}</td>
                           <td className="px-3 py-2">{r.uom}</td>
-                          <td className="px-3 py-2 text-right">{r.qty_on_hand}</td>
                           <td className="px-3 py-2 text-right">{Number(r.unit_cost || 0).toFixed(2)}</td>
+                          <td className="px-3 py-2 text-right">{r.qty_on_hand}</td>
                           <td className="px-3 py-2 text-right font-semibold text-blue-700">{total.toFixed(2)}</td>
                           <td className="px-3 py-2 whitespace-nowrap">{r.container_no || '—'}</td>
-                          <td className="px-3 py-2 text-right">{r.qty_issued || 0}</td>
-                          <td className="px-3 py-2">{r.issued_by_id || '—'}</td>
-                          <td className="px-3 py-2">{r.received_by_id || '—'}</td>
-                          <td className="px-3 py-2 text-right">{r.qty_returned || 0}</td>
-                          <td className="px-3 py-2 text-right">{r.qty_pending_return || 0}</td>
                         </tr>
                       );
                     })}</tbody>

@@ -19,7 +19,7 @@ function UserSearchModal({ isOpen, onClose, title, accentColor, role, onAssign }
   const handleClose = () => { reset(); onClose(); };
 
   const doSearch = async () => {
-    setLoading(true); setSearched(true); setSelected(null);
+    setLoading(true); setSearched(true); setSelected(null); setResults([]);
     try {
       const { data } = await api.get(`/users?role=${role}`);
       const nameQ = search.name.toLowerCase().trim();
@@ -79,7 +79,9 @@ function UserSearchModal({ isOpen, onClose, title, accentColor, role, onAssign }
 
         {searched && (
           <div className="border rounded-lg divide-y max-h-48 overflow-y-auto">
-            {results.length === 0 ? (
+            {loading ? (
+              <p className="px-3 py-3 text-sm text-gray-400 text-center">Searching…</p>
+            ) : results.length === 0 ? (
               <p className="px-3 py-3 text-sm text-gray-400 text-center">No users found</p>
             ) : results.map(u => (
               <div
