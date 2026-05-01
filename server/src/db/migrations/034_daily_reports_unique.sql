@@ -9,6 +9,10 @@ DO $$ BEGIN
 EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
 DO $$ BEGIN
-  ALTER TABLE daily_reports
-    ADD CONSTRAINT daily_reports_date_project_unique UNIQUE (report_date, project_id);
-EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'daily_reports_date_project_unique'
+  ) THEN
+    ALTER TABLE daily_reports
+      ADD CONSTRAINT daily_reports_date_project_unique UNIQUE (report_date, project_id);
+  END IF;
+END $$;

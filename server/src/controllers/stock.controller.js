@@ -97,46 +97,172 @@ exports.lowStock = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+async function nextAdjustmentNo(client) {
+  const seq = await client.query(`SELECT nextval('adj_seq') AS n`);
+  return `ADJ-${new Date().getFullYear()}-${String(seq.rows[0].n).padStart(4, '0')}`;
+}
+
+// Internal helper that performs the adjustment inside an open transaction client.
+// Returns { row, old_qty, new_qty, adjustment_no } on success or throws { status, message }.
+async function applyAdjustment(client, { stock_item_id, adjustment, reason, actor_id, adjustment_no }) {
+  const adj = parseFloat(adjustment);
+  if (!stock_item_id || isNaN(adj) || adj === 0) {
+    throw Object.assign(new Error('stock_item_id and a non-zero adjustment are required'), { status: 400 });
+  }
+
+  const { rows: before } = await client.query('SELECT * FROM stock_items WHERE id = $1', [stock_item_id]);
+  if (!before[0]) throw Object.assign(new Error('Stock item not found'), { status: 404 });
+
+  const oldQty = parseFloat(before[0].qty_on_hand);
+  const newQty = oldQty + adj;
+  if (newQty < 0) {
+    throw Object.assign(new Error(`Adjustment would result in negative stock (${oldQty} + ${adj} = ${newQty})`), { status: 400 });
+  }
+
+  const adjNo = adjustment_no || (await nextAdjustmentNo(client));
+
+  const { rows } = await client.query(
+    `UPDATE stock_items SET qty_on_hand = $1, updated_at = NOW() WHERE id = $2 RETURNING *`,
+    [newQty, stock_item_id]
+  );
+
+  await logStockTransaction(client, stock_item_id, 'adjustment', adj, adjNo, 'adjustment', actor_id, reason || null);
+  await logAudit(client, actor_id, 'STOCK_ADJUSTED', 'stock_item', stock_item_id,
+    { qty_on_hand: oldQty },
+    { qty_on_hand: newQty, adjustment: adj, reason, adjustment_no: adjNo }
+  );
+
+  return { row: rows[0], old_qty: oldQty, new_qty: newQty, adjustment: adj, adjustment_no: adjNo };
+}
+
 exports.adjust = async (req, res, next) => {
   const client = await db.connect();
   try {
-    const { stock_item_id, adjustment, reason } = req.body;
-    if (!stock_item_id || adjustment === undefined || adjustment === null) {
-      return res.status(400).json({ error: 'stock_item_id and adjustment are required' });
-    }
-    const adj = parseFloat(adjustment);
-    if (isNaN(adj) || adj === 0) {
-      return res.status(400).json({ error: 'adjustment must be a non-zero number' });
-    }
-
     await client.query('BEGIN');
+    const result = await applyAdjustment(client, {
+      stock_item_id: req.body.stock_item_id,
+      adjustment:    req.body.adjustment,
+      reason:        req.body.reason,
+      actor_id:      req.user.id,
+    });
+    await client.query('COMMIT');
+    res.json({ ...result.row, old_qty: result.old_qty, new_qty: result.new_qty, adjustment: result.adjustment, adjustment_no: result.adjustment_no });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    if (err.status) return res.status(err.status).json({ error: err.message });
+    next(err);
+  } finally { client.release(); }
+};
 
-    const { rows: before } = await client.query('SELECT * FROM stock_items WHERE id = $1', [stock_item_id]);
-    if (!before[0]) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Stock item not found' }); }
+// ─── adjustment requests (superuser submits, admin approves) ───────────────
 
-    const oldQty = parseFloat(before[0].qty_on_hand);
-    const newQty = oldQty + adj;
+exports.requestAdjustment = async (req, res, next) => {
+  const client = await db.connect();
+  try {
+    const { stock_item_id, adjustment, reason } = req.body;
+    const adj = parseFloat(adjustment);
+    if (!stock_item_id || isNaN(adj) || adj === 0) {
+      return res.status(400).json({ error: 'stock_item_id and a non-zero adjustment are required' });
+    }
+    if (!reason || !String(reason).trim()) {
+      return res.status(400).json({ error: 'Reason is required' });
+    }
+    await client.query('BEGIN');
+    const item = await client.query('SELECT id FROM stock_items WHERE id = $1', [stock_item_id]);
+    if (!item.rows[0]) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Stock item not found' }); }
 
-    if (newQty < 0) {
+    const adjNo = await nextAdjustmentNo(client);
+    const { rows } = await client.query(
+      `INSERT INTO stock_adjustment_requests (stock_item_id, requested_by, adjustment, reason, adjustment_no)
+       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+      [stock_item_id, req.user.id, adj, String(reason).trim(), adjNo]
+    );
+    await client.query('COMMIT');
+    res.status(201).json(rows[0]);
+  } catch (err) { await client.query('ROLLBACK'); next(err); }
+  finally { client.release(); }
+};
+
+exports.listAdjustmentRequests = async (req, res, next) => {
+  try {
+    const { status = 'pending' } = req.query;
+    const params = [];
+    let where = '';
+    if (status && status !== 'all') {
+      params.push(status);
+      where = `WHERE r.status = $${params.length}`;
+    }
+    const { rows } = await db.query(
+      `SELECT r.*,
+              s.item_number, s.description_1, s.uom, s.qty_on_hand, s.unit_cost,
+              p.name AS project_name,
+              ru.name AS requested_by_name, ru.employee_id AS requested_by_employee_id,
+              vu.name AS reviewed_by_name
+       FROM stock_adjustment_requests r
+       JOIN stock_items s ON s.id = r.stock_item_id
+       LEFT JOIN projects p ON p.id = s.project_id
+       LEFT JOIN users ru ON ru.id = r.requested_by
+       LEFT JOIN users vu ON vu.id = r.reviewed_by
+       ${where}
+       ORDER BY r.created_at DESC LIMIT 100`,
+      params
+    );
+    res.json(rows);
+  } catch (err) { next(err); }
+};
+
+exports.approveAdjustmentRequest = async (req, res, next) => {
+  const client = await db.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows: reqRows } = await client.query(
+      'SELECT * FROM stock_adjustment_requests WHERE id = $1 FOR UPDATE',
+      [req.params.id]
+    );
+    if (!reqRows[0]) { await client.query('ROLLBACK'); return res.status(404).json({ error: 'Request not found' }); }
+    if (reqRows[0].status !== 'pending') {
       await client.query('ROLLBACK');
-      return res.status(400).json({ error: `Adjustment would result in negative stock (${oldQty} + ${adj} = ${newQty})` });
+      return res.status(400).json({ error: `Request is already ${reqRows[0].status}` });
     }
 
-    const { rows } = await client.query(
-      `UPDATE stock_items SET qty_on_hand = $1, updated_at = NOW() WHERE id = $2 RETURNING *`,
-      [newQty, stock_item_id]
-    );
+    const r = reqRows[0];
+    const result = await applyAdjustment(client, {
+      stock_item_id:  r.stock_item_id,
+      adjustment:     r.adjustment,
+      reason:         `[Approved ${r.adjustment_no || 'request'}] ${r.reason}`,
+      actor_id:       req.user.id,
+      adjustment_no:  r.adjustment_no,
+    });
 
-    await logStockTransaction(client, stock_item_id, 'adjustment', adj, null, 'adjustment', req.user.id, reason || null);
-    await logAudit(client, req.user.id, 'STOCK_ADJUSTED', 'stock_item', stock_item_id,
-      { qty_on_hand: oldQty },
-      { qty_on_hand: newQty, adjustment: adj, reason }
+    await client.query(
+      `UPDATE stock_adjustment_requests
+       SET status = 'approved', reviewed_by = $1, reviewed_at = NOW(), review_notes = $2
+       WHERE id = $3`,
+      [req.user.id, req.body.review_notes || null, req.params.id]
     );
 
     await client.query('COMMIT');
-    res.json({ ...rows[0], old_qty: oldQty, new_qty: newQty, adjustment: adj });
-  } catch (err) { await client.query('ROLLBACK'); next(err); }
-  finally { client.release(); }
+    res.json({ ...r, status: 'approved', new_qty: result.new_qty, old_qty: result.old_qty });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    if (err.status) return res.status(err.status).json({ error: err.message });
+    next(err);
+  } finally { client.release(); }
+};
+
+exports.rejectAdjustmentRequest = async (req, res, next) => {
+  try {
+    const { review_notes } = req.body;
+    const { rows } = await db.query(
+      `UPDATE stock_adjustment_requests
+       SET status = 'rejected', reviewed_by = $1, reviewed_at = NOW(), review_notes = $2
+       WHERE id = $3 AND status = 'pending'
+       RETURNING *`,
+      [req.user.id, review_notes || null, req.params.id]
+    );
+    if (!rows[0]) return res.status(404).json({ error: 'Pending request not found' });
+    res.json(rows[0]);
+  } catch (err) { next(err); }
 };
 
 exports.updateReorderPoint = async (req, res, next) => {

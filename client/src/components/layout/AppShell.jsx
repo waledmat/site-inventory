@@ -33,6 +33,8 @@ const navByRole = {
     { path: '/superuser', label: '🏠 Dashboard' },
     { path: '/superuser/projects', label: '🏗️ Projects' },
     { path: '/superuser/upload', label: '📂 Upload Packing List' },
+    { path: '/superuser/stock', label: '🔍 Stock Search' },
+    { path: '/superuser/stock-adjustment', label: '⚖️ Stock Adjustment Request' },
     { path: '/superuser/reports', label: '📊 Reports' },
     { path: '/superuser/daily-log', label: '📅 Daily Log' },
     { path: '/superuser/audit-log', label: '📋 Audit Log' },

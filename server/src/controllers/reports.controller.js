@@ -945,10 +945,10 @@ exports.projectCost = async (req, res, next) => {
         for (const it of proj.items) {
           detail.push({
             'Project':        proj.project_name,
-            'Category':       it.category,
             'Item No.':       it.item_number || '',
             'Description':    it.description_1 || '',
             'Description 2':  it.description_2 || '',
+            'Category':       it.category,
             'UOM':            it.uom || '',
             'Unit Cost':      num(it.unit_cost),
             'Qty Issued':     it.qty_issued,

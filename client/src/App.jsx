@@ -31,6 +31,7 @@ import IncomingRequests from './pages/storekeeper/IncomingRequests';
 import IssueMaterial from './pages/storekeeper/IssueMaterial';
 import PendingReturns from './pages/storekeeper/PendingReturns';
 import StockSearch from './pages/storekeeper/StockSearch';
+import StockAdjustmentRequest from './pages/superuser/StockAdjustmentRequest';
 import DeliveryNotes from './pages/storekeeper/DeliveryNotes';
 
 // Super User
@@ -109,6 +110,8 @@ export default function App() {
           <Route path="/superuser/daily-log" element={<ProtectedRoute roles={['superuser']}><Shell><DailyReportLog /></Shell></ProtectedRoute>} />
           <Route path="/superuser/audit-log" element={<ProtectedRoute roles={['superuser']}><Shell><AuditLog /></Shell></ProtectedRoute>} />
           <Route path="/superuser/item-labels" element={<ProtectedRoute roles={['superuser']}><Shell><ItemLabels /></Shell></ProtectedRoute>} />
+          <Route path="/superuser/stock" element={<ProtectedRoute roles={['superuser']}><Shell><StockSearch /></Shell></ProtectedRoute>} />
+          <Route path="/superuser/stock-adjustment" element={<ProtectedRoute roles={['superuser']}><Shell><StockAdjustmentRequest /></Shell></ProtectedRoute>} />
 
           {/* Warehouse Manager — hidden (routes disabled) */}
 
